@@ -256,232 +256,241 @@ export default function PortalToursPage() {
   };
 
   return (
-    <main className="min-h-screen max-w-3xl mx-auto px-4 py-6">
-      <header className="mb-4 flex items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-bold">Your tours</h1>
-          <p className="text-sm text-gray-700">
-            See upcoming and past tours scheduled with your agent and share your preferences.
-          </p>
-        </div>
-        <Link
-          href="/portal"
-          className="text-sm text-gray-600 hover:underline"
-        >
-          ← Back to portal
-        </Link>
-      </header>
+    <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
+      <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
+        {/* Header */}
+        <header className="flex items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-50">
+              Your tours
+            </h1>
+            <p className="text-sm text-slate-300 max-w-xl">
+              See upcoming and past tours with your agent, confirm attendance,
+              and share what worked (or didn&apos;t).
+            </p>
+          </div>
+          <Link
+            href="/portal"
+            className="text-sm text-slate-400 hover:text-slate-200 hover:underline"
+          >
+            ← Back to portal
+          </Link>
+        </header>
 
-      {authError && (
-        <p className="text-sm text-red-600 mb-3">
-          {authError}
-        </p>
-      )}
+        {authError && (
+          <p className="text-sm text-red-300">{authError}</p>
+        )}
 
-      {!authError && loadError && (
-        <p className="text-sm text-red-600 mb-3">
-          {loadError}
-        </p>
-      )}
+        {!authError && loadError && (
+          <p className="text-sm text-red-300">{loadError}</p>
+        )}
 
-      {saveError && (
-        <p className="text-sm text-red-600 mb-3">
-          {saveError}
-        </p>
-      )}
+        {saveError && (
+          <p className="text-sm text-red-300">{saveError}</p>
+        )}
 
-      {saveSuccess && (
-        <p className="text-sm text-green-600 mb-3">
-          {saveSuccess}
-        </p>
-      )}
+        {saveSuccess && (
+          <p className="text-sm text-emerald-300">{saveSuccess}</p>
+        )}
 
-      {!authError && loading && (
-        <p className="text-sm text-gray-600">Loading your tours…</p>
-      )}
+        {!authError && loading && (
+          <p className="text-sm text-slate-300">Loading your tours…</p>
+        )}
 
-      {!loading && !authError && tours.length === 0 && !loadError && (
-        <p className="text-sm text-gray-600">
-          Your agent hasn&apos;t scheduled any tours tied to your journeys yet.
-        </p>
-      )}
+        {!loading && !authError && tours.length === 0 && !loadError && (
+          <div className="mt-2 rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
+            <p className="text-sm text-slate-300">
+              Your agent hasn&apos;t scheduled any tours tied to your journeys yet.
+              When they do, they&apos;ll appear here.
+            </p>
+          </div>
+        )}
 
-      {!loading && !authError && tours.length > 0 && (
-        <div className="space-y-6">
-          {/* Upcoming */}
-          {upcomingTours.length > 0 && (
-            <section className="border border-gray-200 rounded-lg p-4">
-              <h2 className="text-lg font-semibold mb-2">Upcoming tours</h2>
-              <p className="text-xs text-gray-500 mb-3">
-                Confirm if you&apos;re attending and share anything your agent should know.
-              </p>
-              <ul className="space-y-3 text-sm">
-                {upcomingTours.map((t) => (
-                  <li
-                    key={t.id}
-                    className="border border-gray-200 rounded-md p-3 flex flex-col gap-2"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <div className="font-semibold">
-                          {t.title || 'Home tour'}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {t.client_name || 'Journey'} •{' '}
-                          {formatJourneyLabel(t)}
-                          {t.client_stage ? ` • ${t.client_stage}` : ''}
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-1 text-xs">
-                        {t.status && (
-                          <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-gray-700">
-                            {t.status}
-                          </span>
-                        )}
-                        <span className="text-gray-700">
-                          {formatDateTime(t.start_time)}
-                          {t.end_time
-                            ? ` – ${formatDateTime(t.end_time)}`
-                            : ''}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Feedback / attendance controls */}
-                    <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,3fr)_minmax(0,1fr)] gap-3 items-end mt-1">
-                      <div>
-                        <label className="block text-xs font-medium mb-1 text-gray-700">
-                          Anything we should know for this tour?
-                        </label>
-                        <textarea
-                          value={feedbackById[t.id] ?? ''}
-                          onChange={(e) =>
-                            setFeedbackById((prev) => ({
-                              ...prev,
-                              [t.id]: e.target.value,
-                            }))
-                          }
-                          rows={3}
-                          className="w-full border rounded-md px-3 py-2 text-sm"
-                          placeholder="Parking concerns, timing constraints, who will attend, etc."
-                        />
-                      </div>
-
-                      <div className="space-y-2">
+        {!loading && !authError && tours.length > 0 && (
+          <div className="space-y-6 mt-2">
+            {/* Upcoming */}
+            {upcomingTours.length > 0 && (
+              <section className="rounded-2xl border border-white/10 bg-black/40 p-4">
+                <h2 className="text-lg font-semibold text-slate-50 mb-1">
+                  Upcoming tours
+                </h2>
+                <p className="text-xs text-slate-400 mb-3">
+                  Confirm if you&apos;re attending and share anything your agent
+                  should know before the day.
+                </p>
+                <ul className="space-y-3 text-sm">
+                  {upcomingTours.map((t) => (
+                    <li
+                      key={t.id}
+                      className="rounded-xl border border-white/10 bg-white/5 p-3 flex flex-col gap-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
                         <div>
-                          <label className="block text-xs font-medium mb-1 text-gray-700">
-                            Will you attend?
+                          <div className="font-semibold text-slate-50">
+                            {t.title || 'Home tour'}
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            {t.client_name || 'Journey'} •{' '}
+                            {formatJourneyLabel(t)}
+                            {t.client_stage ? ` • ${t.client_stage}` : ''}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 text-xs">
+                          {t.status && (
+                            <span className="inline-flex items-center rounded-full border border-white/15 bg-black/40 px-2 py-0.5 text-[11px] text-slate-100">
+                              {t.status}
+                            </span>
+                          )}
+                          <span className="text-slate-200">
+                            {formatDateTime(t.start_time)}
+                            {t.end_time
+                              ? ` – ${formatDateTime(t.end_time)}`
+                              : ''}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Feedback / attendance controls */}
+                      <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,3fr)_minmax(0,1.2fr)] gap-3 items-end">
+                        <div>
+                          <label className="block text-xs font-medium mb-1 text-slate-200">
+                            Anything we should know for this tour?
                           </label>
-                          <select
-                            value={attendingById[t.id] ?? ''}
+                          <textarea
+                            value={feedbackById[t.id] ?? ''}
                             onChange={(e) =>
-                              setAttendingById((prev) => ({
+                              setFeedbackById((prev) => ({
                                 ...prev,
                                 [t.id]: e.target.value,
                               }))
                             }
-                            className="w-full border rounded-md px-2 py-1 text-sm bg-white"
+                            rows={3}
+                            className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                            placeholder="Parking, timing, who will attend, access notes…"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <div>
+                            <label className="block text-xs font-medium mb-1 text-slate-200">
+                              Will you attend?
+                            </label>
+                            <select
+                              value={attendingById[t.id] ?? ''}
+                              onChange={(e) =>
+                                setAttendingById((prev) => ({
+                                  ...prev,
+                                  [t.id]: e.target.value,
+                                }))
+                              }
+                              className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                            >
+                              <option value="">Not sure yet</option>
+                              <option value="yes">Yes, I&apos;ll be there</option>
+                              <option value="no">No, I can&apos;t make it</option>
+                              <option value="maybe">
+                                Maybe / still deciding
+                              </option>
+                            </select>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleSave(t)}
+                            disabled={savingId === t.id}
+                            className="w-full inline-flex items-center justify-center px-3 py-2 rounded-lg bg-[#EBD27A] text-black text-xs font-medium hover:bg-[#f3e497] disabled:opacity-60"
                           >
-                            <option value="">Not sure yet</option>
-                            <option value="yes">Yes, I&apos;ll be there</option>
-                            <option value="no">No, I can&apos;t make it</option>
-                            <option value="maybe">Maybe / still deciding</option>
-                          </select>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleSave(t)}
-                          disabled={savingId === t.id}
-                          className="w-full inline-flex items-center justify-center px-3 py-2 rounded-md bg-black text-white text-xs font-medium hover:bg-gray-800 disabled:opacity-60"
-                        >
-                          {savingId === t.id ? 'Saving…' : 'Save updates'}
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-
-          {/* Past */}
-          {pastTours.length > 0 && (
-            <section className="border border-gray-200 rounded-lg p-4">
-              <h2 className="text-lg font-semibold mb-2">Past tours</h2>
-              <p className="text-xs text-gray-500 mb-3">
-                Share feedback on past tours to help your agent refine future showings.
-              </p>
-              <ul className="space-y-3 text-sm">
-                {pastTours.map((t) => (
-                  <li
-                    key={t.id}
-                    className="border border-gray-200 rounded-md p-3 flex flex-col gap-2"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <div className="font-semibold">
-                          {t.title || 'Home tour'}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {t.client_name || 'Journey'} •{' '}
-                          {formatJourneyLabel(t)}
-                          {t.client_stage ? ` • ${t.client_stage}` : ''}
+                            {savingId === t.id ? 'Saving…' : 'Save updates'}
+                          </button>
                         </div>
                       </div>
-                      <div className="flex flex-col items-end gap-1 text-xs">
-                        {t.status && (
-                          <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-gray-700">
-                            {t.status}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/* Past */}
+            {pastTours.length > 0 && (
+              <section className="rounded-2xl border border-white/10 bg-black/40 p-4">
+                <h2 className="text-lg font-semibold text-slate-50 mb-1">
+                  Past tours
+                </h2>
+                <p className="text-xs text-slate-400 mb-3">
+                  Share feedback on past tours to help your agent fine-tune what
+                  to show you next.
+                </p>
+                <ul className="space-y-3 text-sm">
+                  {pastTours.map((t) => (
+                    <li
+                      key={t.id}
+                      className="rounded-xl border border-white/10 bg-white/5 p-3 flex flex-col gap-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="font-semibold text-slate-50">
+                            {t.title || 'Home tour'}
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            {t.client_name || 'Journey'} •{' '}
+                            {formatJourneyLabel(t)}
+                            {t.client_stage ? ` • ${t.client_stage}` : ''}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 text-xs">
+                          {t.status && (
+                            <span className="inline-flex items-center rounded-full border border-white/15 bg-black/40 px-2 py-0.5 text-[11px] text-slate-100">
+                              {t.status}
+                            </span>
+                          )}
+                          <span className="text-slate-200">
+                            {formatDateTime(t.start_time)}
+                            {t.end_time
+                              ? ` – ${formatDateTime(t.end_time)}`
+                              : ''}
                           </span>
-                        )}
-                        <span className="text-gray-700">
-                          {formatDateTime(t.start_time)}
-                          {t.end_time
-                            ? ` – ${formatDateTime(t.end_time)}`
-                            : ''}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Past tour feedback only */}
-                    <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,3fr)_minmax(0,1fr)] gap-3 items-end mt-1">
-                      <div>
-                        <label className="block text-xs font-medium mb-1 text-gray-700">
-                          How did this tour go?
-                        </label>
-                        <textarea
-                          value={feedbackById[t.id] ?? ''}
-                          onChange={(e) =>
-                            setFeedbackById((prev) => ({
-                              ...prev,
-                              [t.id]: e.target.value,
-                            }))
-                          }
-                          rows={3}
-                          className="w-full border rounded-md px-3 py-2 text-sm"
-                          placeholder="Which homes did you like or dislike? Any standouts or dealbreakers?"
-                        />
+                        </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <button
-                          type="button"
-                          onClick={() => handleSave(t)}
-                          disabled={savingId === t.id}
-                          className="w-full inline-flex items-center justify-center px-3 py-2 rounded-md bg-black text-white text-xs font-medium hover:bg-gray-800 disabled:opacity-60"
-                        >
-                          {savingId === t.id ? 'Saving…' : 'Save feedback'}
-                        </button>
+                      {/* Past tour feedback only */}
+                      <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,3fr)_minmax(0,1.2fr)] gap-3 items-end">
+                        <div>
+                          <label className="block text-xs font-medium mb-1 text-slate-200">
+                            How did this tour go?
+                          </label>
+                          <textarea
+                            value={feedbackById[t.id] ?? ''}
+                            onChange={(e) =>
+                              setFeedbackById((prev) => ({
+                                ...prev,
+                                [t.id]: e.target.value,
+                              }))
+                            }
+                            rows={3}
+                            className="w-full rounded-lg border border.white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                            placeholder="Which homes did you like or dislike? Any standouts or dealbreakers?"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSave(t)}
+                            disabled={savingId === t.id}
+                            className="w-full inline-flex items-center justify-center px-3 py-2 rounded-lg bg-[#EBD27A] text-black text-xs font-medium hover:bg-[#f3e497] disabled:opacity-60"
+                          >
+                            {savingId === t.id ? 'Saving…' : 'Save feedback'}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-        </div>
-      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </div>
+        )}
+      </div>
     </main>
   );
 }

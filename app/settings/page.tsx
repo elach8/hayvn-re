@@ -1,3 +1,4 @@
+// app/settings/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -131,17 +132,23 @@ function SettingsInner() {
 
   if (loading) {
     return (
-      <main className="p-6">
-        <div className="text-sm text-gray-500">Loading settings…</div>
+      <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
+        <div className="max-w-3xl mx-auto px-4 py-10">
+          <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-200">
+            Loading settings…
+          </div>
+        </div>
       </main>
     );
   }
 
   if (!agent) {
     return (
-      <main className="p-6">
-        <div className="text-sm text-red-600">
-          {error || 'Unable to load agent.'}
+      <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
+        <div className="max-w-3xl mx-auto px-4 py-10">
+          <div className="rounded-2xl border border-red-500/40 bg-red-950/40 px-4 py-3 text-sm text-red-100">
+            {error || 'Unable to load agent.'}
+          </div>
         </div>
       </main>
     );
@@ -150,114 +157,132 @@ function SettingsInner() {
   const isBroker = agent.role === 'broker';
 
   return (
-    <main className="p-6 space-y-6 max-w-3xl mx-auto">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="text-sm text-gray-500">
-          Signed in as {agent.full_name || agent.email} • {agent.role}
-        </p>
-      </header>
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-          {error}
-        </div>
-      )}
-
-      {info && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-          {info}
-        </div>
-      )}
-
-      {/* Agent info card */}
-      <section className="rounded-xl border border-gray-200 bg-white p-4 space-y-2">
-        <h2 className="text-sm font-medium text-gray-800">Profile</h2>
-        <div className="text-sm text-gray-600 space-y-1">
-          <p>
-            <span className="font-medium">Name: </span>
-            {agent.full_name || '—'}
+    <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
+      <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+        <header className="space-y-1">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+            Settings
+          </h1>
+          <p className="text-sm text-slate-300">
+            Signed in as{' '}
+            <span className="font-medium text-slate-50">
+              {agent.full_name || agent.email}
+            </span>{' '}
+            <span className="text-slate-400">
+              • {agent.role || 'agent'}
+            </span>
           </p>
-          <p>
-            <span className="font-medium">Email: </span>
-            {agent.email || '—'}
-          </p>
-          <p>
-            <span className="font-medium">Role: </span>
-            {agent.role}
-          </p>
-        </div>
-      </section>
+        </header>
 
-      {/* Brokerage + join code section */}
-      <section className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
-        <h2 className="text-sm font-medium text-gray-800">Brokerage</h2>
-
-        {!brokerage && (
-          <p className="text-sm text-gray-500">
-            You&apos;re not currently linked to a brokerage. Complete onboarding
-            or contact support if this seems wrong.
-          </p>
+        {error && (
+          <div className="rounded-2xl border border-red-500/40 bg-red-950/40 px-4 py-3 text-xs text-red-100">
+            {error}
+          </div>
         )}
 
-        {brokerage && (
-          <>
-            <div className="text-sm text-gray-600 space-y-1">
-              <p>
-                <span className="font-medium">Name: </span>
-                {brokerage.name || '—'}
-              </p>
-              <p>
-                <span className="font-medium">Solo practice: </span>
-                {brokerage.is_solo ? 'Yes' : 'No'}
-              </p>
-              <p>
-                <span className="font-medium">MLS: </span>
-                {brokerage.mls_name || '—'}
-              </p>
-              <p>
-                <span className="font-medium">MLS office ID: </span>
-                {brokerage.mls_office_id || '—'}
-              </p>
-            </div>
+        {info && (
+          <div className="rounded-2xl border border-emerald-500/40 bg-emerald-950/40 px-4 py-3 text-xs text-emerald-100">
+            {info}
+          </div>
+        )}
 
-            <div className="pt-3 border-t border-gray-100 space-y-2">
-              <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                Team join code
-              </h3>
+        {/* Agent info card */}
+        <section className="rounded-2xl border border-white/10 bg-black/40 p-4 space-y-2">
+          <h2 className="text-sm font-medium text-slate-50">Profile</h2>
+          <div className="text-sm text-slate-200 space-y-1">
+            <p>
+              <span className="font-medium text-slate-100">Name: </span>
+              <span className="text-slate-200">
+                {agent.full_name || '—'}
+              </span>
+            </p>
+            <p>
+              <span className="font-medium text-slate-100">Email: </span>
+              <span className="text-slate-200">
+                {agent.email || '—'}
+              </span>
+            </p>
+            <p>
+              <span className="font-medium text-slate-100">Role: </span>
+              <span className="capitalize text-slate-200">
+                {agent.role || '—'}
+              </span>
+            </p>
+          </div>
+        </section>
 
-              {isBroker ? (
-                <>
-                  <p className="text-xs text-gray-500">
-                    Share this code with agents so they can join your brokerage
-                    in Hayvn-RE. You can regenerate it at any time.
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono tracking-[0.2em]">
-                      {brokerage.join_code || '———'}
+        {/* Brokerage + join code section */}
+        <section className="rounded-2xl border border-white/10 bg-black/40 p-4 space-y-3">
+          <h2 className="text-sm font-medium text-slate-50">Brokerage</h2>
+
+          {!brokerage && (
+            <p className="text-sm text-slate-300">
+              You&apos;re not currently linked to a brokerage. Complete
+              onboarding or contact support if this seems wrong.
+            </p>
+          )}
+
+          {brokerage && (
+            <>
+              <div className="text-sm text-slate-200 space-y-1">
+                <p>
+                  <span className="font-medium text-slate-100">Name: </span>
+                  <span>{brokerage.name || '—'}</span>
+                </p>
+                <p>
+                  <span className="font-medium text-slate-100">
+                    Solo practice:{' '}
+                  </span>
+                  <span>{brokerage.is_solo ? 'Yes' : 'No'}</span>
+                </p>
+                <p>
+                  <span className="font-medium text-slate-100">MLS: </span>
+                  <span>{brokerage.mls_name || '—'}</span>
+                </p>
+                <p>
+                  <span className="font-medium text-slate-100">
+                    MLS office ID:{' '}
+                  </span>
+                  <span>{brokerage.mls_office_id || '—'}</span>
+                </p>
+              </div>
+
+              <div className="pt-3 border-t border-white/10 space-y-2">
+                <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wide">
+                  Team join code
+                </h3>
+
+                {isBroker ? (
+                  <>
+                    <p className="text-xs text-slate-400">
+                      Share this code with agents so they can join your brokerage
+                      in Hayvn-RE. You can regenerate it at any time.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="rounded-xl border border-white/20 bg-black/60 px-3 py-2 text-sm font-mono tracking-[0.25em] text-[#EBD27A]">
+                        {brokerage.join_code || '———'}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRegenerateJoinCode}
+                        disabled={saving}
+                        className="rounded-lg bg-[#EBD27A] text-black text-xs font-medium px-3 py-1.5 hover:bg-[#f1dd9a] disabled:opacity-60"
+                      >
+                        {saving ? 'Updating…' : 'Regenerate'}
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleRegenerateJoinCode}
-                      disabled={saving}
-                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium hover:bg-gray-50 disabled:opacity-60"
-                    >
-                      {saving ? 'Updating…' : 'Regenerate'}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-xs text-gray-500">
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-400">
                     Only brokers can see and manage the join code. Ask your
                     broker for the code to share with other agents.
                   </p>
-                </>
-              )}
-            </div>
-          </>
-        )}
-      </section>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+      </div>
     </main>
   );
 }
@@ -269,3 +294,4 @@ export default function SettingsPage() {
     </RequireAuth>
   );
 }
+

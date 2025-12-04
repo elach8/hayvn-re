@@ -141,7 +141,6 @@ function ClientJourneyInner() {
           .eq('email', user.email)
           .maybeSingle();
 
-
         if (portalError) throw portalError;
         if (!portalRow) {
           throw new Error(
@@ -336,8 +335,17 @@ function ClientJourneyInner() {
     run();
   }, [clientId, router]);
 
-  const { loading, error, portalUser, client, accessRole, agent, savedHomes, tours, offers } =
-    state;
+  const {
+    loading,
+    error,
+    portalUser,
+    client,
+    accessRole,
+    agent,
+    savedHomes,
+    tours,
+    offers,
+  } = state;
 
   const formatMoney = (v: number | null) =>
     v == null ? '-' : `$${v.toLocaleString()}`;
@@ -382,18 +390,16 @@ function ClientJourneyInner() {
 
   if (loading && !client) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-sm text-gray-500">
-          Loading your home journey…
-        </div>
+      <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-black via-slate-950 to-black text-slate-300">
+        <div className="text-sm">Loading your home journey…</div>
       </main>
     );
   }
 
   if (!client) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <div className="max-w-sm rounded-xl bg-white border border-red-200 px-4 py-3 text-sm text-red-700">
+      <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-black via-slate-950 to-black px-4">
+        <div className="max-w-sm rounded-xl bg-black/70 border border-red-400/40 px-4 py-3 text-sm text-red-200 shadow-lg">
           {error || 'Home journey not found.'}
         </div>
       </main>
@@ -401,22 +407,22 @@ function ClientJourneyInner() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
       {/* Portal header */}
-      <header className="border-b bg-white">
+      <header className="border-b border-white/10 bg-black/70 backdrop-blur">
         <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between gap-3">
-          <div className="space-y-0.5">
+          <div className="space-y-1">
             <button
               type="button"
               onClick={() => router.push('/portal')}
-              className="text-xs text-gray-500 hover:text-gray-700"
+              className="text-[11px] text-slate-400 hover:text-slate-200"
             >
               ← Back to all journeys
             </button>
-            <h1 className="text-base font-semibold">
+            <h1 className="text-base font-semibold text-slate-50">
               Your home journey
             </h1>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-slate-400">
               {client.client_type === 'buyer'
                 ? 'Buying'
                 : client.client_type === 'seller'
@@ -427,8 +433,8 @@ function ClientJourneyInner() {
           </div>
           {portalUser && (
             <div className="text-right">
-              <p className="text-xs text-gray-500">Signed in as</p>
-              <p className="text-xs font-medium text-gray-800">
+              <p className="text-[11px] text-slate-500">Signed in as</p>
+              <p className="text-xs font-medium text-slate-100">
                 {portalUser.full_name || portalUser.email}
               </p>
             </div>
@@ -438,79 +444,79 @@ function ClientJourneyInner() {
 
       <section className="mx-auto max-w-5xl px-4 py-6 space-y-6">
         {/* Overview */}
-        <section className="rounded-xl border border-gray-200 bg-white p-4 space-y-2 text-sm">
+        <section className="rounded-2xl border border-white/10 bg-black/40 p-4 space-y-3 text-sm">
           <header className="flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-semibold text-gray-800">
+              <h2 className="text-sm font-semibold text-slate-50">
                 Overview
               </h2>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-slate-400">
                 A snapshot of your search with your agent.
               </p>
             </div>
           </header>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-1">
             <div>
-              <div className="text-[11px] text-gray-500 uppercase tracking-wide">
+              <div className="text-[11px] text-slate-400 uppercase tracking-wide">
                 Status
               </div>
-              <div className="text-sm font-medium text-gray-800">
+              <div className="text-sm font-medium text-slate-50">
                 {client.stage || 'Active'}
               </div>
             </div>
             <div>
-              <div className="text-[11px] text-gray-500 uppercase tracking-wide">
+              <div className="text-[11px] text-slate-400 uppercase tracking-wide">
                 Budget
               </div>
-              <div className="text-sm font-medium text-gray-800">
+              <div className="text-sm font-medium text-slate-50">
                 {formatBudget(client.budget_min, client.budget_max)}
               </div>
             </div>
             <div>
-              <div className="text-[11px] text-gray-500 uppercase tracking-wide">
+              <div className="text-[11px] text-slate-400 uppercase tracking-wide">
                 Preferred areas
               </div>
-              <div className="text-sm font-medium text-gray-800">
+              <div className="text-sm font-medium text-slate-50">
                 {client.preferred_locations || 'Not specified'}
               </div>
             </div>
           </div>
 
           {agent && (
-            <div className="mt-3 text-xs text-gray-600">
-              <span className="font-medium">Agent:</span>{' '}
+            <div className="mt-3 text-xs text-slate-300">
+              <span className="font-medium text-slate-100">Agent:</span>{' '}
               {agent.full_name || agent.email}
             </div>
           )}
 
           {client.notes && (
-            <p className="mt-3 text-xs text-gray-600 whitespace-pre-wrap">
-              <span className="font-medium">Agent notes:</span>{' '}
+            <p className="mt-3 text-xs text-slate-300 whitespace-pre-wrap">
+              <span className="font-medium text-slate-100">Agent notes:</span>{' '}
               {client.notes}
             </p>
           )}
         </section>
 
         {/* Saved homes */}
-        <section className="rounded-xl border border-gray-200 bg-white p-4 text-sm space-y-3">
+        <section className="rounded-2xl border border-white/10 bg-black/40 p-4 text-sm space-y-3">
           <header className="flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-semibold text-gray-800">
+              <h2 className="text-sm font-semibold text-slate-50">
                 Saved homes
               </h2>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-slate-400">
                 Homes your agent has linked to this journey.
               </p>
             </div>
-            <div className="text-[11px] text-gray-400">
+            <div className="text-[11px] text-slate-400">
               {savedHomes.length} home
               {savedHomes.length === 1 ? '' : 's'}
             </div>
           </header>
 
           {savedHomes.length === 0 ? (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-slate-400">
               No saved homes yet. As your agent shares homes with you, they&apos;ll
               appear here.
             </p>
@@ -521,47 +527,47 @@ function ClientJourneyInner() {
                 return (
                   <article
                     key={sh.id}
-                    className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 flex flex-col gap-1"
+                    className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 flex flex-col gap-1"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <div className="text-sm font-medium text-gray-800">
+                        <div className="text-sm font-medium text-slate-50">
                           {p?.address || 'Home'}
                         </div>
-                        <div className="text-[11px] text-gray-500">
+                        <div className="text-[11px] text-slate-400">
                           {p?.city && p?.state
                             ? `${p.city}, ${p.state}`
                             : null}
                         </div>
                       </div>
-                      <div className="text-right text-[11px] text-gray-400">
+                      <div className="text-right text-[11px] text-slate-500">
                         {new Date(sh.created_at).toLocaleDateString()}
                       </div>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 text-[11px] mt-1">
                       {p?.list_price != null && (
-                        <span className="font-medium">
+                        <span className="font-medium text-slate-50">
                           {formatMoney(p.list_price)}
                         </span>
                       )}
                       {p?.property_type && (
-                        <span className="text-gray-500">
+                        <span className="text-slate-400">
                           {p.property_type}
                         </span>
                       )}
                       {sh.relationship && (
-                        <span className="inline-flex items-center rounded-full bg-white border border-gray-200 px-2 py-0.5">
+                        <span className="inline-flex items-center rounded-full bg-black/60 border border-white/15 px-2 py-0.5 text-[11px] text-slate-100">
                           {sh.relationship.replace('_', ' ')}
                         </span>
                       )}
                       {sh.interest_level && (
-                        <span className="inline-flex items-center rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-0.5">
+                        <span className="inline-flex items-center rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 text-[11px]">
                           {sh.interest_level}
                         </span>
                       )}
                       {sh.is_favorite && (
-                        <span className="text-yellow-500 text-xs">
+                        <span className="text-[#EBD27A] text-xs">
                           ★ favorite
                         </span>
                       )}
@@ -574,20 +580,20 @@ function ClientJourneyInner() {
         </section>
 
         {/* Tours */}
-        <section className="rounded-xl border border-gray-200 bg-white p-4 text-sm space-y-3">
+        <section className="rounded-2xl border border-white/10 bg-black/40 p-4 text-sm space-y-3">
           <header className="flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-semibold text-gray-800">
+              <h2 className="text-sm font-semibold text-slate-50">
                 Tours & showings
               </h2>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-slate-400">
                 Your upcoming appointments and past tours with your agent.
               </p>
             </div>
           </header>
 
           {tours.length === 0 ? (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-slate-400">
               No tours scheduled yet. When your agent books showings, they&apos;ll
               appear here.
             </p>
@@ -595,25 +601,25 @@ function ClientJourneyInner() {
             <div className="space-y-4">
               {upcomingTours.length > 0 && (
                 <div>
-                  <h3 className="text-[11px] font-semibold uppercase text-gray-500 mb-1">
+                  <h3 className="text-[11px] font-semibold uppercase text-slate-400 mb-1">
                     Upcoming
                   </h3>
                   <ul className="space-y-2">
                     {upcomingTours.map((t) => (
                       <li
                         key={t.id}
-                        className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <div>
-                            <div className="text-sm font-medium text-gray-800">
+                            <div className="text-sm font-medium text-slate-50">
                               {t.title || 'Tour'}
                             </div>
-                            <div className="text-[11px] text-gray-500">
+                            <div className="text-[11px] text-slate-400">
                               {formatDateTime(t.start_time)}
                             </div>
                           </div>
-                          <div className="text-[11px] text-gray-500">
+                          <div className="text-[11px] text-slate-400">
                             {t.status || 'scheduled'}
                           </div>
                         </div>
@@ -625,25 +631,25 @@ function ClientJourneyInner() {
 
               {pastTours.length > 0 && (
                 <div>
-                  <h3 className="text-[11px] font-semibold uppercase text-gray-500 mb-1">
+                  <h3 className="text-[11px] font-semibold uppercase text-slate-400 mb-1">
                     Past
                   </h3>
                   <ul className="space-y-2">
                     {pastTours.map((t) => (
                       <li
                         key={t.id}
-                        className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2"
+                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <div>
-                            <div className="text-sm font-medium text-gray-800">
+                            <div className="text-sm font-medium text-slate-50">
                               {t.title || 'Tour'}
                             </div>
-                            <div className="text-[11px] text-gray-500">
+                            <div className="text-[11px] text-slate-400">
                               {formatDateTime(t.start_time)}
                             </div>
                           </div>
-                          <div className="text-[11px] text-gray-500">
+                          <div className="text-[11px] text-slate-400">
                             {t.status || 'completed'}
                           </div>
                         </div>
@@ -657,69 +663,77 @@ function ClientJourneyInner() {
         </section>
 
         {/* Offers */}
-        <section className="rounded-xl border border-gray-200 bg-white p-4 text-sm space-y-3">
+        <section className="rounded-2xl border border-white/10 bg-black/40 p-4 text-sm space-y-3">
           <header className="flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-semibold text-gray-800">
+              <h2 className="text-sm font-semibold text-slate-50">
                 Offers & contracts
               </h2>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-slate-400">
                 Any offers your agent has recorded for this journey.
               </p>
             </div>
-            <div className="text-[11px] text-gray-400">
+            <div className="text-[11px] text-slate-400">
               {offers.length} offer{offers.length === 1 ? '' : 's'}
             </div>
           </header>
 
           {offers.length === 0 ? (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-slate-400">
               No offers recorded yet. When your agent logs an offer, you&apos;ll
               see it here.
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full border border-gray-200 text-xs">
-                <thead className="bg-gray-50">
+              <table className="min-w-full border border-white/10 text-xs">
+                <thead className="bg-white/5 text-slate-300">
                   <tr>
-                    <th className="border px-2 py-1 text-left">Home</th>
-                    <th className="border px-2 py-1 text-left">Side</th>
-                    <th className="border px-2 py-1 text-left">Status</th>
-                    <th className="border px-2 py-1 text-right">
+                    <th className="border border-white/10 px-2 py-1 text-left">
+                      Home
+                    </th>
+                    <th className="border border-white/10 px-2 py-1 text-left">
+                      Side
+                    </th>
+                    <th className="border border-white/10 px-2 py-1 text-left">
+                      Status
+                    </th>
+                    <th className="border border-white/10 px-2 py-1 text-right">
                       Offer price
                     </th>
-                    <th className="border px-2 py-1 text-left">
+                    <th className="border border-white/10 px-2 py-1 text-left">
                       Close date
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {offers.map((o) => (
-                    <tr key={o.id} className="hover:bg-gray-50">
-                      <td className="border px-2 py-1">
+                    <tr key={o.id} className="hover:bg-white/5 text-slate-100">
+                      <td className="border border-white/10 px-2 py-1 align-top">
                         {o.property ? (
                           <>
-                            <div className="font-medium text-gray-800">
+                            <div className="font-medium text-slate-50">
                               {o.property.address || 'Home'}
                             </div>
-                            <div className="text-[11px] text-gray-500">
+                            <div className="text-[11px] text-slate-400">
                               {o.property.city}, {o.property.state}
                             </div>
                           </>
                         ) : (
-                          <span className="text-gray-400">(no property)</span>
+                          <span className="text-slate-500">
+                            (no property)
+                          </span>
                         )}
                       </td>
-                      <td className="border px-2 py-1">
+                      <td className="border border-white/10 px-2 py-1 align-top">
                         {o.side || '-'}
                       </td>
-                      <td className="border px-2 py-1">
+                      <td className="border border-white/10 px-2 py-1 align-top">
                         {o.status || '-'}
                       </td>
-                      <td className="border px-2 py-1 text-right">
+                      <td className="border border-white/10 px-2 py-1 align-top text-right">
                         {formatMoney(o.offer_price)}
                       </td>
-                      <td className="border px-2 py-1">
+                      <td className="border border-white/10 px-2 py-1 align-top">
                         {o.close_date
                           ? new Date(o.close_date).toLocaleDateString()
                           : '-'}

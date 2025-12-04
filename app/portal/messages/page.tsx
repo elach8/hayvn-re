@@ -162,7 +162,10 @@ export default function PortalMessagesPage() {
   };
 
   const groupedByClient = useMemo(() => {
-    const map = new Map<string, { client: ClientInfo | null; items: PortalMessage[] }>();
+    const map = new Map<
+      string,
+      { client: ClientInfo | null; items: PortalMessage[] }
+    >();
     for (const m of messages) {
       const key = m.client_id;
       if (!map.has(key)) {
@@ -177,67 +180,73 @@ export default function PortalMessagesPage() {
   }, [messages]);
 
   return (
-    <main className="min-h-screen max-w-4xl mx-auto px-4 py-6">
-      <header className="mb-4 flex items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-bold">Messages from your agent</h1>
-          <p className="text-sm text-gray-700">
-            See important updates and notes your agent has shared about your home journey.
+    <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
+      <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
+        {/* Header */}
+        <header className="flex items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-50">
+              Messages from your agent
+            </h1>
+            <p className="text-sm text-slate-300 max-w-xl">
+              Important updates, notes, and check-ins your agent has shared
+              about your home journey.
+            </p>
+          </div>
+          <Link
+            href="/portal"
+            className="text-sm text-slate-400 hover:text-slate-200 hover:underline"
+          >
+            ← Back to portal
+          </Link>
+        </header>
+
+        {portalUser && (
+          <p className="text-xs text-slate-400">
+            Signed in as{' '}
+            <span className="font-medium text-slate-100">
+              {portalUser.full_name || portalUser.email}
+            </span>
+            .
           </p>
-        </div>
-        <Link
-          href="/portal"
-          className="text-sm text-gray-600 hover:underline"
-        >
-          ← Back to portal
-        </Link>
-      </header>
+        )}
 
-      {portalUser && (
-        <p className="text-xs text-gray-500 mb-3">
-          Signed in as{' '}
-          <span className="font-medium">
-            {portalUser.full_name || portalUser.email}
-          </span>
-          .
-        </p>
-      )}
+        {authError && (
+          <p className="text-sm text-red-300 mt-2">{authError}</p>
+        )}
 
-      {authError && (
-        <p className="text-sm text-red-600 mb-3">{authError}</p>
-      )}
+        {!authError && loadError && (
+          <p className="text-sm text-red-300 mt-2">{loadError}</p>
+        )}
 
-      {!authError && loadError && (
-        <p className="text-sm text-red-600 mb-3">{loadError}</p>
-      )}
+        {!authError && loading && (
+          <p className="text-sm text-slate-300 mt-2">
+            Loading your messages…
+          </p>
+        )}
 
-      {!authError && loading && (
-        <p className="text-sm text-gray-600">Loading your messages…</p>
-      )}
+        {!loading && !authError && !loadError && messages.length === 0 && (
+          <div className="mt-3 rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
+            <p className="text-sm text-slate-300">
+              You don&apos;t have any messages from your agent yet. When they
+              post updates to your journey, they&apos;ll show up here.
+            </p>
+          </div>
+        )}
 
-      {!loading && !authError && !loadError && messages.length === 0 && (
-        <p className="text-sm text-gray-600">
-          You don&apos;t have any messages from your agent yet. When they post updates
-          to your journey, they&apos;ll show up here.
-        </p>
-      )}
-
-      {!loading &&
-        !authError &&
-        !loadError &&
-        messages.length > 0 && (
-          <div className="space-y-6 text-sm">
+        {!loading && !authError && !loadError && messages.length > 0 && (
+          <div className="space-y-6 text-sm mt-3">
             {groupedByClient.map(({ client, items }) => (
               <section
                 key={client?.id || 'unknown'}
-                className="border border-gray-200 rounded-lg p-4"
+                className="rounded-2xl border border-white/10 bg-black/40 p-4"
               >
                 <header className="mb-3 flex items-center justify-between gap-2">
                   <div>
-                    <h2 className="text-base font-semibold text-gray-800">
+                    <h2 className="text-base font-semibold text-slate-50">
                       {client?.name || 'Home journey'}
                     </h2>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-slate-400">
                       {client?.client_type === 'buyer'
                         ? 'Buying journey'
                         : client?.client_type === 'seller'
@@ -252,32 +261,33 @@ export default function PortalMessagesPage() {
                   {items.map((m) => (
                     <li
                       key={m.id}
-                      className={`border rounded-md p-3 ${
-                        m.is_pinned ? 'border-amber-300 bg-amber-50/60' : 'border-gray-200 bg-white'
-                      }`}
+                      className={[
+                        'rounded-xl border px-3 py-3',
+                        m.is_pinned
+                          ? 'border-[#EBD27A] bg-[#EBD27A]/10'
+                          : 'border-white/10 bg-white/5',
+                      ].join(' ')}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <h3 className="text-sm font-semibold text-gray-900 truncate">
+                            <h3 className="text-sm font-semibold text-slate-50 truncate">
                               {m.title || 'Update from your agent'}
                             </h3>
                             {m.is_pinned && (
-                              <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[11px] text-amber-800 whitespace-nowrap">
+                              <span className="inline-flex items-center rounded-full border border-[#EBD27A] bg-black/60 px-2 py-0.5 text-[11px] text-[#EBD27A] whitespace-nowrap">
                                 Important
                               </span>
                             )}
                           </div>
-                          <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                          <p className="text-sm text-slate-100 whitespace-pre-wrap">
                             {m.body}
                           </p>
                         </div>
                       </div>
 
-                      <div className="mt-2 flex items-center justify-between text-[11px] text-gray-500">
-                        <span>
-                          {m.author_name || 'Your agent'}
-                        </span>
+                      <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+                        <span>{m.author_name || 'Your agent'}</span>
                         <span>{formatDateTime(m.created_at)}</span>
                       </div>
                     </li>
@@ -287,6 +297,7 @@ export default function PortalMessagesPage() {
             ))}
           </div>
         )}
+      </div>
     </main>
   );
 }

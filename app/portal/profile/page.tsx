@@ -198,151 +198,160 @@ export default function PortalProfilePage() {
   };
 
   return (
-    <main className="min-h-screen max-w-3xl mx-auto px-4 py-6">
-      <header className="mb-4 flex items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-bold">Your profile & preferences</h1>
-          <p className="text-sm text-gray-700">
-            Update your search areas and budget so your agent has the most accurate picture of what you&apos;re looking for.
-          </p>
-        </div>
-        <Link
-          href="/portal"
-          className="text-sm text-gray-600 hover:underline"
-        >
-          ← Back to portal
-        </Link>
-      </header>
+    <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
+      <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
+        <header className="flex items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-50">
+              Your profile & preferences
+            </h1>
+            <p className="text-sm text-slate-300 max-w-xl">
+              Update your search areas and budget so your agent has the most
+              accurate picture of what you&apos;re looking for.
+            </p>
+          </div>
+          <Link
+            href="/portal"
+            className="text-sm text-slate-400 hover:text-slate-200 hover:underline"
+          >
+            ← Back to portal
+          </Link>
+        </header>
 
-      {authError && (
-        <p className="text-sm text-red-600 mb-3">
-          {authError}
-        </p>
-      )}
+        {authError && (
+          <p className="text-sm text-red-300">{authError}</p>
+        )}
 
-      {!authError && loadError && (
-        <p className="text-sm text-red-600 mb-3">
-          {loadError}
-        </p>
-      )}
+        {!authError && loadError && (
+          <p className="text-sm text-red-300">{loadError}</p>
+        )}
 
-      {saveError && (
-        <p className="text-sm text-red-600 mb-3">
-          {saveError}
-        </p>
-      )}
+        {saveError && (
+          <p className="text-sm text-red-300">{saveError}</p>
+        )}
 
-      {saveSuccess && (
-        <p className="text-sm text-green-600 mb-3">
-          {saveSuccess}
-        </p>
-      )}
+        {saveSuccess && (
+          <p className="text-sm text-emerald-300">{saveSuccess}</p>
+        )}
 
-      {!authError && loading && (
-        <p className="text-sm text-gray-600">Loading your profile…</p>
-      )}
+        {!authError && loading && (
+          <p className="text-sm text-slate-300">Loading your profile…</p>
+        )}
 
-      {!loading && !authError && clients.length === 0 && !loadError && (
-        <p className="text-sm text-gray-600">
-          We couldn&apos;t find any journeys tied to your email yet. Ask your agent to create a client record in Hayvn-RE using this email address.
-        </p>
-      )}
+        {!loading && !authError && clients.length === 0 && !loadError && (
+          <div className="mt-3 rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
+            <p className="text-sm text-slate-300">
+              We couldn&apos;t find any journeys tied to your email yet. Ask your
+              agent to create a client record in Hayvn-RE using this email
+              address.
+            </p>
+          </div>
+        )}
 
-      {!loading && !authError && clients.length > 0 && (
-        <div className="space-y-4">
-          {clients.map((c) => {
-            const label =
-              c.client_type === 'buyer'
-                ? 'Buying journey'
-                : c.client_type === 'seller'
-                ? 'Selling journey'
-                : 'Journey';
+        {!loading && !authError && clients.length > 0 && (
+          <div className="space-y-4">
+            {clients.map((c) => {
+              const label =
+                c.client_type === 'buyer'
+                  ? 'Buying journey'
+                  : c.client_type === 'seller'
+                  ? 'Selling journey'
+                  : 'Journey';
 
-            return (
-              <section
-                key={c.id}
-                className="border border-gray-200 rounded-lg p-4 text-sm"
-              >
-                <header className="flex items-center justify-between gap-2 mb-3">
-                  <div>
-                    <h2 className="text-sm font-semibold text-gray-800">
-                      {c.name || 'Journey'}
-                    </h2>
-                    <p className="text-xs text-gray-500">
-                      {label}
-                      {c.stage ? ` • ${c.stage}` : ''}
-                    </p>
-                  </div>
-                </header>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-700">
-                      Preferred areas
-                    </label>
-                    <input
-                      type="text"
-                      value={c.locationsInput}
-                      onChange={(e) =>
-                        handleChange(c.id, 'locationsInput', e.target.value)
-                      }
-                      className="w-full border rounded-md px-3 py-2 text-sm"
-                      placeholder="e.g., Irvine, Costa Mesa, Tustin"
-                    />
-                    <p className="mt-1 text-[11px] text-gray-500">
-                      You can list multiple cities separated by commas.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              return (
+                <section
+                  key={c.id}
+                  className="rounded-2xl border border-white/10 bg-black/40 p-4 text-sm"
+                >
+                  <header className="flex items-center justify-between gap-2 mb-3">
                     <div>
-                      <label className="block text-xs font-medium mb-1 text-gray-700">
-                        Budget minimum
+                      <h2 className="text-sm font-semibold text-slate-50">
+                        {c.name || 'Journey'}
+                      </h2>
+                      <p className="text-xs text-slate-400">
+                        {label}
+                        {c.stage ? ` • ${c.stage}` : ''}
+                      </p>
+                    </div>
+                  </header>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium mb-1 text-slate-200">
+                        Preferred areas
                       </label>
                       <input
                         type="text"
-                        inputMode="numeric"
-                        value={c.budgetMinInput}
+                        value={c.locationsInput}
                         onChange={(e) =>
-                          handleChange(c.id, 'budgetMinInput', e.target.value)
+                          handleChange(c.id, 'locationsInput', e.target.value)
                         }
-                        className="w-full border rounded-md px-3 py-2 text-sm"
-                        placeholder="e.g., 800000"
+                        className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                        placeholder="e.g., Irvine, Costa Mesa, Tustin"
                       />
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        You can list multiple cities separated by commas.
+                      </p>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1 text-gray-700">
-                        Budget maximum
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={c.budgetMaxInput}
-                        onChange={(e) =>
-                          handleChange(c.id, 'budgetMaxInput', e.target.value)
-                        }
-                        className="w-full border rounded-md px-3 py-2 text-sm"
-                        placeholder="e.g., 1500000"
-                      />
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-slate-200">
+                          Budget minimum
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={c.budgetMinInput}
+                          onChange={(e) =>
+                            handleChange(
+                              c.id,
+                              'budgetMinInput',
+                              e.target.value
+                            )
+                          }
+                          className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                          placeholder="e.g., 800000"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-slate-200">
+                          Budget maximum
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={c.budgetMaxInput}
+                          onChange={(e) =>
+                            handleChange(
+                              c.id,
+                              'budgetMaxInput',
+                              e.target.value
+                            )
+                          }
+                          className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                          placeholder="e.g., 1500000"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <footer className="mt-4 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => handleSave(c.id)}
-                    disabled={savingId === c.id}
-                    className="inline-flex items-center px-4 py-2 rounded-md bg-black text-white text-xs font-medium hover:bg-gray-800 disabled:opacity-60"
-                  >
-                    {savingId === c.id ? 'Saving…' : 'Save preferences'}
-                  </button>
-                </footer>
-              </section>
-            );
-          })}
-        </div>
-      )}
+                  <footer className="mt-4 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handleSave(c.id)}
+                      disabled={savingId === c.id}
+                      className="inline-flex items-center px-4 py-2 rounded-lg bg-[#EBD27A] text-black text-xs font-medium hover:bg-[#f3e497] disabled:opacity-60"
+                    >
+                      {savingId === c.id ? 'Saving…' : 'Save preferences'}
+                    </button>
+                  </footer>
+                </section>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </main>
   );
 }

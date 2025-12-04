@@ -1,8 +1,11 @@
+// /app/market-radar/page.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
+import { Card } from '../components/Card';
+import { Button } from '../components/Button';
 
 type Property = {
   id: string;
@@ -14,7 +17,7 @@ type Property = {
   pipeline_stage: string;
 };
 
-export default function RadarPage() {
+export default function MarketRadarPage() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,13 +104,10 @@ export default function RadarPage() {
     const max = toNumOrNull(maxPrice);
 
     return properties.filter((p) => {
-      // City
       if (cityFilter && p.city !== cityFilter) return false;
-      // Type
       if (typeFilter && p.property_type !== typeFilter) return false;
-      // Stage
       if (stageFilter && p.pipeline_stage !== stageFilter) return false;
-      // Price
+
       const price = p.list_price ?? null;
       if (min != null && (price == null || price < min)) return false;
       if (max != null && (price == null || price > max)) return false;
@@ -150,130 +150,164 @@ export default function RadarPage() {
     v == null ? '-' : `$${v.toLocaleString()}`;
 
   return (
-    <main className="min-h-screen">
-      <header className="flex items-center justify-between mb-3 gap-2">
+    <div className="space-y-6 max-w-5xl">
+      {/* Header */}
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold mb-1">Market Radar</h1>
-          <p className="text-sm text-gray-700">
-            Quick read on your tracked market: filter by city, price,
-            type, and stage.
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+            Market Radar
+          </h1>
+          <p className="text-sm text-slate-300">
+            Quick read on your tracked market: filter by city, price, type, and
+            stage to see where your pipeline is concentrated.
           </p>
         </div>
-        <Link
-          href="/properties/new"
-          className="inline-flex items-center px-3 py-2 rounded-md bg-black text-white text-sm font-medium hover:bg-gray-800"
-        >
-          + Add Property
+
+        <Link href="/properties/new">
+          <Button className="w-full sm:w-auto">+ Add property</Button>
         </Link>
       </header>
 
       {/* Filters */}
-      <section className="border border-gray-200 rounded-lg p-3 mb-4 text-xs grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div>
-          <label className="block font-medium mb-1">City</label>
-          <select
-            value={cityFilter}
-            onChange={(e) => setCityFilter(e.target.value)}
-            className="w-full border rounded-md px-2 py-1 text-xs"
-          >
-            <option value="">Any</option>
-            {uniqueCities.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
+      <Card className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          <div className="space-y-1">
+            <label className="block text-[11px] font-medium text-slate-200">
+              City
+            </label>
+            <select
+              value={cityFilter}
+              onChange={(e) => setCityFilter(e.target.value)}
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+            >
+              <option value="">Any</option>
+              {uniqueCities.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div>
-          <label className="block font-medium mb-1">Type</label>
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="w-full border rounded-md px-2 py-1 text-xs"
-          >
-            <option value="">Any</option>
-            {uniqueTypes.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </div>
+          <div className="space-y-1">
+            <label className="block text-[11px] font-medium text-slate-200">
+              Type
+            </label>
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+            >
+              <option value="">Any</option>
+              {uniqueTypes.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div>
-          <label className="block font-medium mb-1">Stage</label>
-          <select
-            value={stageFilter}
-            onChange={(e) => setStageFilter(e.target.value)}
-            className="w-full border rounded-md px-2 py-1 text-xs"
-          >
-            <option value="">Any</option>
-            {uniqueStages.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </div>
+          <div className="space-y-1">
+            <label className="block text-[11px] font-medium text-slate-200">
+              Stage
+            </label>
+            <select
+              value={stageFilter}
+              onChange={(e) => setStageFilter(e.target.value)}
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+            >
+              <option value="">Any</option>
+              {uniqueStages.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div>
-          <label className="block font-medium mb-1">Price range</label>
-          <div className="flex items-center gap-1">
-            <input
-              type="text"
-              inputMode="decimal"
-              value={minPrice}
-              onChange={(e) => setMinPrice(e.target.value)}
-              placeholder="min"
-              className="w-1/2 border rounded-md px-2 py-1 text-xs"
-            />
-            <span className="text-[11px] text-gray-500">–</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={maxPrice}
-              onChange={(e) => setMaxPrice(e.target.value)}
-              placeholder="max"
-              className="w-1/2 border rounded-md px-2 py-1 text-xs"
-            />
+          <div className="space-y-1">
+            <label className="block text-[11px] font-medium text-slate-200">
+              Price range
+            </label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={minPrice}
+                onChange={(e) => setMinPrice(e.target.value)}
+                placeholder="min"
+                className="w-1/2 rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+              />
+              <span className="text-[11px] text-slate-400">–</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={maxPrice}
+                onChange={(e) => setMaxPrice(e.target.value)}
+                placeholder="max"
+                className="w-1/2 rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+              />
+            </div>
           </div>
         </div>
-      </section>
 
-      {loading && <p>Loading radar…</p>}
+        <p className="text-[11px] text-slate-400">
+          Filters apply instantly. Use this as a quick radar on your tracked
+          sub-markets instead of guessing from memory.
+        </p>
+      </Card>
 
+      {/* Error / loading */}
       {error && (
-        <p className="text-sm text-red-600 mb-4">
-          Error loading properties: {error}
-        </p>
+        <Card>
+          <p className="text-sm text-red-300">
+            Error loading properties: {error}
+          </p>
+        </Card>
       )}
 
+      {loading && (
+        <Card>
+          <p className="text-sm text-slate-300">Loading market radar…</p>
+        </Card>
+      )}
+
+      {/* Empty state */}
       {!loading && !error && properties.length === 0 && (
-        <p className="text-sm text-gray-600">
-          No properties yet. Start by adding a few under Properties.
-        </p>
+        <Card>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <p className="text-sm text-slate-300">
+              No properties yet. Add a few properties first to see your market
+              radar.
+            </p>
+            <Link href="/properties/new">
+              <Button variant="secondary" className="w-full sm:w-auto">
+                + Add property
+              </Button>
+            </Link>
+          </div>
+        </Card>
       )}
 
+      {/* Stats + table */}
       {!loading && !error && properties.length > 0 && (
         <>
-          {/* Summary / stats */}
-          <section className="border border-gray-200 rounded-lg p-4 mb-4 text-sm">
-            <div className="flex flex-wrap items-start justify-between gap-4">
+          {/* Stats */}
+          <Card className="space-y-4 text-sm">
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
               <div className="space-y-1">
-                <div className="text-gray-500 text-xs">
+                <div className="text-[11px] uppercase tracking-wide text-slate-400">
                   Matching properties
                 </div>
-                <div className="text-xl font-semibold">
+                <div className="text-2xl font-semibold text-slate-50">
                   {filtered.length}{' '}
-                  <span className="text-xs text-gray-500">
-                    of {properties.length} total
+                  <span className="text-xs text-slate-400">
+                    of {properties.length} tracked
                   </span>
                 </div>
-                <div className="text-xs text-gray-500">
-                  Filters: city {cityFilter || 'any'}, type{' '}
-                  {typeFilter || 'any'}, stage{' '}
-                  {stageFilter || 'any'}, price{' '}
+                <div className="text-xs text-slate-400">
+                  City: {cityFilter || 'any'} · Type: {typeFilter || 'any'} ·
+                  Stage: {stageFilter || 'any'} · Price:{' '}
                   {minPrice || 'any'} – {maxPrice || 'any'}
                 </div>
               </div>
@@ -282,118 +316,121 @@ export default function RadarPage() {
                 {priceStats ? (
                   <>
                     <div>
-                      <div className="text-gray-500 text-xs">
-                        Median price
+                      <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                        Median
                       </div>
-                      <div className="font-semibold">
+                      <div className="font-semibold text-slate-50">
                         {formatMoney(priceStats.median)}
                       </div>
                     </div>
                     <div>
-                      <div className="text-gray-500 text-xs">
-                        Average price
+                      <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                        Average
                       </div>
-                      <div className="font-semibold">
+                      <div className="font-semibold text-slate-50">
                         {formatMoney(Math.round(priceStats.avg))}
                       </div>
                     </div>
                     <div>
-                      <div className="text-gray-500 text-xs">
+                      <div className="text-[11px] uppercase tracking-wide text-slate-400">
                         Range
                       </div>
-                      <div className="font-semibold">
+                      <div className="font-semibold text-slate-50">
                         {formatMoney(priceStats.min)} –{' '}
                         {formatMoney(priceStats.max)}
                       </div>
                     </div>
                   </>
                 ) : (
-                  <div className="text-xs text-gray-500">
-                    Not enough price data for stats.
+                  <div className="text-xs text-slate-400">
+                    Not enough price data yet to compute stats.
                   </div>
                 )}
               </div>
 
-              <div className="text-xs text-gray-500">
-                <div className="font-semibold mb-1">
+              <div className="text-xs text-slate-400 min-w-[160px]">
+                <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">
                   By stage (filtered)
                 </div>
-                {Object.keys(stageCounts).length === 0 && (
-                  <div>–</div>
-                )}
+                {Object.keys(stageCounts).length === 0 && <div>—</div>}
                 {Object.entries(stageCounts).map(([stage, count]) => (
-                  <div key={stage}>
-                    {stage}: {count}
+                  <div key={stage} className="flex justify-between">
+                    <span className="capitalize text-slate-100">{stage}</span>
+                    <span>{count}</span>
                   </div>
                 ))}
               </div>
             </div>
-          </section>
+          </Card>
 
-          {/* Results table */}
-          <section className="border border-gray-200 rounded-lg p-4 mb-6">
-            <h2 className="text-lg font-semibold mb-3">Results</h2>
-
-            {filtered.length === 0 && (
-              <p className="text-sm text-gray-600">
-                No properties match the current filters.
-              </p>
-            )}
-
-            {filtered.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="min-w-full border border-gray-200 text-xs sm:text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="border px-2 py-1 text-left">
-                        Property
-                      </th>
-                      <th className="border px-2 py-1 text-left">
-                        City
-                      </th>
-                      <th className="border px-2 py-1 text-left">
-                        Type
-                      </th>
-                      <th className="border px-2 py-1 text-left">
-                        Stage
-                      </th>
-                      <th className="border px-2 py-1 text-right">
-                        List price
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((p) => (
-                      <tr key={p.id} className="hover:bg-gray-50">
-                        <td className="border px-2 py-1">
-                          <Link
-                            href={`/properties/${p.id}`}
-                            className="text-blue-600 hover:underline"
-                          >
-                            {p.address}
-                          </Link>
-                        </td>
-                        <td className="border px-2 py-1">
+          {/* Table */}
+          <Card className="p-0 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-white/5 text-xs uppercase text-slate-300">
+                  <tr>
+                    <th className="px-3 py-2 text-left border-b border-white/10">
+                      Property
+                    </th>
+                    <th className="px-3 py-2 text-left border-b border-white/10">
+                      City
+                    </th>
+                    <th className="px-3 py-2 text-left border-b border-white/10">
+                      Type
+                    </th>
+                    <th className="px-3 py-2 text-left border-b border-white/10">
+                      Stage
+                    </th>
+                    <th className="px-3 py-2 text-right border-b border-white/10">
+                      List price
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((p) => (
+                    <tr
+                      key={p.id}
+                      className="hover:bg-white/5 transition-colors text-slate-100"
+                    >
+                      <td className="px-3 py-2 border-b border-white/5 align-top">
+                        <Link
+                          href={`/properties/${p.id}`}
+                          className="font-medium text-[#EBD27A] hover:underline"
+                        >
+                          {p.address}
+                        </Link>
+                        <div className="text-xs text-slate-400 mt-0.5">
                           {p.city}, {p.state}
-                        </td>
-                        <td className="border px-2 py-1">
-                          {p.property_type || '-'}
-                        </td>
-                        <td className="border px-2 py-1">
-                          {p.pipeline_stage}
-                        </td>
-                        <td className="border px-2 py-1 text-right">
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 border-b border-white/5 align-top">
+                        <span className="text-sm text-slate-100">
+                          {p.city}, {p.state}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 border-b border-white/5 align-top">
+                        <span className="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-[11px] capitalize text-slate-100 border border-white/15">
+                          {p.property_type || '—'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 border-b border-white/5 align-top">
+                        <span className="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-[11px] capitalize text-slate-100 border border-white/15">
+                          {p.pipeline_stage || 'unknown'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 border-b border-white/5 align-top text-right">
+                        <span className="text-sm text-slate-100">
                           {formatMoney(p.list_price)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         </>
       )}
-    </main>
+    </div>
   );
 }

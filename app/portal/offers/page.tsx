@@ -134,7 +134,6 @@ export default function PortalOffersPage() {
       for (const c of clientList) clientById.set(c.id, c);
 
       // 3) Load offers for those client IDs
-      // We use select('*') so we don't depend on exact column names beyond the basics.
       const { data: offerRows, error: offerError } = await supabase
         .from('offers')
         .select('*')
@@ -253,7 +252,10 @@ export default function PortalOffersPage() {
   };
 
   const groupedByClient = useMemo(() => {
-    const map = new Map<string, { client: ClientInfo | null; items: PortalOffer[] }>();
+    const map = new Map<
+      string,
+      { client: ClientInfo | null; items: PortalOffer[] }
+    >();
     for (const o of offers) {
       const key = o.client_id;
       if (!map.has(key)) {
@@ -273,7 +275,7 @@ export default function PortalOffersPage() {
     setSavingId(offer.id);
 
     const feedback = (feedbackById[offer.id] ?? '').trim();
-    const decision = decisionById[offer.id] || null; // '', 'accept', 'counter', 'decline', 'reviewing'
+    const decision = decisionById[offer.id] || null;
 
     const { error } = await supabase
       .from('offers')
@@ -290,7 +292,6 @@ export default function PortalOffersPage() {
       return;
     }
 
-    // sync local state
     setOffers((prev) =>
       prev.map((o) =>
         o.id === offer.id
@@ -308,75 +309,81 @@ export default function PortalOffersPage() {
   };
 
   return (
-    <main className="min-h-screen max-w-4xl mx-auto px-4 py-6">
-      <header className="mb-4 flex items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-bold">Your offers</h1>
-          <p className="text-sm text-gray-700">
-            Review offers your agent has prepared and share your preferences.
+    <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
+      <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
+        {/* Header */}
+        <header className="flex items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-50">
+              Your offers
+            </h1>
+            <p className="text-sm text-slate-300 max-w-xl">
+              Review offers your agent has prepared and share how you feel
+              about them.
+            </p>
+          </div>
+          <Link
+            href="/portal"
+            className="text-sm text-slate-400 hover:text-slate-200 hover:underline"
+          >
+            ← Back to portal
+          </Link>
+        </header>
+
+        {portalUser && (
+          <p className="text-xs text-slate-400">
+            Signed in as{' '}
+            <span className="font-medium text-slate-100">
+              {portalUser.full_name || portalUser.email}
+            </span>
+            .
           </p>
-        </div>
-        <Link
-          href="/portal"
-          className="text-sm text-gray-600 hover:underline"
-        >
-          ← Back to portal
-        </Link>
-      </header>
+        )}
 
-      {portalUser && (
-        <p className="text-xs text-gray-500 mb-3">
-          Signed in as{' '}
-          <span className="font-medium">
-            {portalUser.full_name || portalUser.email}
-          </span>
-          .
-        </p>
-      )}
+        {authError && (
+          <p className="text-sm text-red-300 mt-2">{authError}</p>
+        )}
 
-      {authError && (
-        <p className="text-sm text-red-600 mb-3">{authError}</p>
-      )}
+        {!authError && loadError && (
+          <p className="text-sm text-red-300 mt-2">{loadError}</p>
+        )}
 
-      {!authError && loadError && (
-        <p className="text-sm text-red-600 mb-3">{loadError}</p>
-      )}
+        {saveError && (
+          <p className="text-sm text-red-300 mt-2">{saveError}</p>
+        )}
 
-      {saveError && (
-        <p className="text-sm text-red-600 mb-3">{saveError}</p>
-      )}
+        {saveSuccess && (
+          <p className="text-sm text-emerald-300 mt-2">{saveSuccess}</p>
+        )}
 
-      {saveSuccess && (
-        <p className="text-sm text-green-600 mb-3">{saveSuccess}</p>
-      )}
+        {!authError && loading && (
+          <p className="text-sm text-slate-300 mt-2">
+            Loading your offers…
+          </p>
+        )}
 
-      {!authError && loading && (
-        <p className="text-sm text-gray-600">Loading your offers…</p>
-      )}
+        {!loading && !authError && !loadError && offers.length === 0 && (
+          <div className="mt-3 rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
+            <p className="text-sm text-slate-300">
+              You don&apos;t have any offers tied to your journeys yet. When
+              your agent prepares an offer in Hayvn-RE, it will show up here.
+            </p>
+          </div>
+        )}
 
-      {!loading && !authError && !loadError && offers.length === 0 && (
-        <p className="text-sm text-gray-600">
-          You don&apos;t have any offers tied to your journeys yet. When your
-          agent prepares an offer for you in Hayvn-RE, it will show up here.
-        </p>
-      )}
-
-      {!loading &&
-        !authError &&
-        !loadError &&
-        offers.length > 0 && (
-          <div className="space-y-6">
+        {!loading && !authError && !loadError && offers.length > 0 && (
+          <div className="space-y-6 mt-3">
             {groupedByClient.map(({ client, items }) => (
               <section
                 key={client?.id || 'unknown'}
-                className="border border-gray-200 rounded-lg p-4"
+                className="rounded-2xl border border-white/10 bg-black/40 p-4"
               >
                 <header className="mb-3 flex items-center justify-between gap-2">
                   <div>
-                    <h2 className="text-base font-semibold text-gray-800">
+                    <h2 className="text-base font-semibold text-slate-50">
                       {client?.name || 'Home journey'}
                     </h2>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-slate-400">
                       {formatJourneyLabel(client)}
                       {client?.stage ? ` • ${client.stage}` : ''}
                     </p>
@@ -387,15 +394,15 @@ export default function PortalOffersPage() {
                   {items.map((o) => (
                     <li
                       key={o.id}
-                      className="border border-gray-200 rounded-md p-3 flex flex-col gap-2"
+                      className="rounded-xl border border-white/10 bg-white/5 p-3 flex flex-col gap-3"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <div className="font-semibold">
+                          <div className="font-semibold text-slate-50">
                             {o.property_id ? (
                               <Link
                                 href={`/properties/${o.property_id}`}
-                                className="text-blue-600 hover:underline"
+                                className="text-[#EBD27A] hover:underline"
                               >
                                 {o.property_label}
                               </Link>
@@ -404,31 +411,31 @@ export default function PortalOffersPage() {
                             )}
                           </div>
                           {(o.property_city || o.property_state) && (
-                            <div className="text-xs text-gray-500">
+                            <div className="text-xs text-slate-400">
                               {o.property_city || ''}
                               {o.property_state ? `, ${o.property_state}` : ''}
                             </div>
                           )}
-                          <div className="text-[11px] text-gray-500 mt-0.5">
+                          <div className="text-[11px] text-slate-400 mt-0.5">
                             {o.status ? `Status: ${o.status}` : 'Status: —'}
                           </div>
                         </div>
 
                         <div className="text-right text-xs">
-                          <div className="text-gray-800 font-medium">
+                          <div className="text-slate-50 font-medium">
                             {formatPrice(o.offer_price)}
                           </div>
                           {o.created_at && (
-                            <div className="text-[11px] text-gray-500 mt-0.5">
+                            <div className="text-[11px] text-slate-400 mt-0.5">
                               Created {formatDateTime(o.created_at)}
                             </div>
                           )}
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,3fr)_minmax(0,1fr)] gap-3 items-end">
+                      <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,3fr)_minmax(0,1.4fr)] gap-3 items-end">
                         <div>
-                          <label className="block text-xs font-medium mb-1 text-gray-700">
+                          <label className="block text-xs font-medium mb-1 text-slate-200">
                             What are your thoughts on this offer?
                           </label>
                           <textarea
@@ -440,14 +447,14 @@ export default function PortalOffersPage() {
                               }))
                             }
                             rows={3}
-                            className="w-full border rounded-md px-3 py-2 text-sm"
+                            className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
                             placeholder="Anything you want your agent to know – concerns, changes you want, timing, etc."
                           />
                         </div>
 
                         <div className="space-y-2">
                           <div>
-                            <label className="block text-xs font-medium mb-1 text-gray-700">
+                            <label className="block text-xs font-medium mb-1 text-slate-200">
                               How do you feel about this offer?
                             </label>
                             <select
@@ -458,7 +465,7 @@ export default function PortalOffersPage() {
                                   [o.id]: e.target.value,
                                 }))
                               }
-                              className="w-full border rounded-md px-2 py-1 text-sm bg-white"
+                              className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
                             >
                               <option value="">No decision yet</option>
                               <option value="accept">Accept offer</option>
@@ -470,7 +477,7 @@ export default function PortalOffersPage() {
                                 Still reviewing
                               </option>
                             </select>
-                            <p className="mt-1 text-[11px] text-gray-500">
+                            <p className="mt-1 text-[11px] text-slate-400">
                               Current: {formatDecisionLabel(o.client_decision)}
                             </p>
                           </div>
@@ -479,7 +486,7 @@ export default function PortalOffersPage() {
                             type="button"
                             onClick={() => handleSave(o)}
                             disabled={savingId === o.id}
-                            className="w-full inline-flex items-center justify-center px-3 py-2 rounded-md bg-black text-white text-xs font-medium hover:bg-gray-800 disabled:opacity-60"
+                            className="w-full inline-flex items-center justify-center px-3 py-2 rounded-lg bg-[#EBD27A] text-black text-xs font-medium hover:bg-[#f3e497] disabled:opacity-60"
                           >
                             {savingId === o.id ? 'Saving…' : 'Save updates'}
                           </button>
@@ -492,6 +499,8 @@ export default function PortalOffersPage() {
             ))}
           </div>
         )}
+      </div>
     </main>
   );
 }
+
