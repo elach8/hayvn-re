@@ -1,9 +1,12 @@
+// /app/clients/new/page.tsx
 'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { Card } from '../../components/Card';
+import { Button } from '../../components/Button';
 
 const STAGES = ['lead', 'active', 'under_contract', 'past', 'lost'];
 const TYPES = ['buyer', 'seller', 'both'];
@@ -101,7 +104,6 @@ export default function NewClientPage() {
               client_id: newClientId,
               role: 'primary',
             },
-            // NOTE: this must match your unique constraint (you already used this in ClientDetailPage)
             { onConflict: 'portal_user_id,client_id' }
           );
 
@@ -115,180 +117,196 @@ export default function NewClientPage() {
   };
 
   return (
-    <main className="min-h-screen max-w-2xl">
-      <header className="flex items-center justify-between mb-3 gap-2">
+    <div className="max-w-2xl space-y-4">
+      <header className="flex items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold mb-1">Add Client</h1>
-          <p className="text-sm text-gray-700">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+            Add Client
+          </h1>
+          <p className="text-sm text-slate-300">
             Create a buyer or seller profile with basic preferences.
           </p>
         </div>
-        <Link
-          href="/clients"
-          className="text-sm text-gray-600 hover:underline"
-        >
-          ← Back to Clients
+        <Link href="/clients">
+          <Button variant="ghost" className="text-xs sm:text-sm">
+            ← Back to Clients
+          </Button>
         </Link>
       </header>
 
-      <form
-        onSubmit={handleSubmit}
-        className="space-y-4 border border-gray-200 rounded-lg p-4"
-      >
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Name *
-          </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full border rounded-md px-3 py-2 text-sm"
-            placeholder="Client name"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Type
-            </label>
-            <select
-              value={clientType}
-              onChange={(e) => setClientType(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
-            >
-              {TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
+      <Card className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <p className="text-sm text-red-300">
+              {error}
+            </p>
+          )}
 
           <div>
-            <label className="block text-sm font-medium mb-1">
-              Stage
-            </label>
-            <select
-              value={stage}
-              onChange={(e) => setStage(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
-            >
-              {STAGES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Phone
-            </label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
-              placeholder="(555) 123-4567"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Email
-          </label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full border rounded-md px-3 py-2 text-sm"
-            placeholder="name@example.com"
-          />
-          <div className="mt-2 flex items-start gap-2 text-xs text-gray-700">
-            <input
-              id="prepare-portal"
-              type="checkbox"
-              checked={preparePortal}
-              onChange={(e) => setPreparePortal(e.target.checked)}
-              className="mt-0.5 h-3 w-3"
-            />
-            <label htmlFor="prepare-portal">
-              If a client portal account already exists for this email, link
-              this client to it automatically. Otherwise, they&apos;ll be linked
-              once they sign in at <code>/portal</code>.
-            </label>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Budget Min
+            <label className="block text-sm font-medium mb-1 text-slate-100">
+              Name <span className="text-red-400">*</span>
             </label>
             <input
               type="text"
-              value={budgetMin}
-              onChange={(e) => setBudgetMin(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
-              placeholder="e.g., 800000"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+              placeholder="Client name"
             />
           </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1 text-slate-100">
+                Type
+              </label>
+              <select
+                value={clientType}
+                onChange={(e) => setClientType(e.target.value)}
+                className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+              >
+                {TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1 text-slate-100">
+                Stage
+              </label>
+              <select
+                value={stage}
+                onChange={(e) => setStage(e.target.value)}
+                className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+              >
+                {STAGES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1 text-slate-100">
+                Phone
+              </label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                placeholder="(555) 123-4567"
+              />
+            </div>
+          </div>
+
           <div>
-            <label className="block text-sm font-medium mb-1">
-              Budget Max
+            <label className="block text-sm font-medium mb-1 text-slate-100">
+              Email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+              placeholder="name@example.com"
+            />
+            <div className="mt-2 flex items-start gap-2 text-xs text-slate-300">
+              <input
+                id="prepare-portal"
+                type="checkbox"
+                checked={preparePortal}
+                onChange={(e) => setPreparePortal(e.target.checked)}
+                className="mt-0.5 h-3 w-3 rounded border border-white/30 bg-black/60"
+              />
+              <label htmlFor="prepare-portal" className="leading-snug">
+                If a client portal account already exists for this email, link
+                this client to it automatically. Otherwise, they&apos;ll be linked
+                once they sign in at <code className="text-[10px]">/portal</code>.
+              </label>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1 text-slate-100">
+                Budget Min
+              </label>
+              <input
+                type="text"
+                value={budgetMin}
+                onChange={(e) => setBudgetMin(e.target.value)}
+                className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                placeholder="e.g., 800000"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1 text-slate-100">
+                Budget Max
+              </label>
+              <input
+                type="text"
+                value={budgetMax}
+                onChange={(e) => setBudgetMax(e.target.value)}
+                className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                placeholder="e.g., 1500000"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1 text-slate-100">
+              Preferred Locations
             </label>
             <input
               type="text"
-              value={budgetMax}
-              onChange={(e) => setBudgetMax(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
-              placeholder="e.g., 1500000"
+              value={preferredLocations}
+              onChange={(e) => setPreferredLocations(e.target.value)}
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+              placeholder="Irvine, Costa Mesa, etc."
             />
           </div>
-        </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Preferred Locations
-          </label>
-          <input
-            type="text"
-            value={preferredLocations}
-            onChange={(e) => setPreferredLocations(e.target.value)}
-            className="w-full border rounded-md px-3 py-2 text-sm"
-            placeholder="Irvine, Costa Mesa, etc."
-          />
-        </div>
+          <div>
+            <label className="block text-sm font-medium mb-1 text-slate-100">
+              Internal Notes
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+              rows={3}
+              placeholder="How you met, criteria, quirks, etc."
+            />
+          </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Internal Notes
-          </label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="w-full border rounded-md px-3 py-2 text-sm"
-            rows={3}
-            placeholder="How you met, criteria, quirks, etc."
-          />
-        </div>
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between pt-2">
+            <Button
+              type="submit"
+              disabled={saving}
+              className="w-full sm:w-auto"
+            >
+              {saving ? 'Saving…' : 'Save Client'}
+            </Button>
 
-        <button
-          type="submit"
-          disabled={saving}
-          className="inline-flex items-center px-4 py-2 rounded-md bg-black text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-60"
-        >
-          {saving ? 'Saving…' : 'Save Client'}
-        </button>
-      </form>
-    </main>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full sm:w-auto"
+              onClick={() => router.push('/clients')}
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </Card>
+    </div>
   );
 }
+
 
 

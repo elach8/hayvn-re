@@ -1,8 +1,12 @@
+// /app/offers/page.tsx
 'use client';
 
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import RequireAuth from '../components/RequireAuth';
+import { Card } from '../components/Card';
+import { Button } from '../components/Button';
 
 type Agent = {
   id: string;
@@ -14,15 +18,15 @@ type Agent = {
 
 type Offer = {
   id: string;
-  side: string | null;            // 'buy' | 'sell' etc.
+  side: string | null;
   offer_price: number | null;
   earnest_money: number | null;
   down_payment: number | null;
   financing_type: string | null;
   status: string | null;
   status_reason: string | null;
-  expiration: string | null;      // timestamp
-  close_date: string | null;      // date
+  expiration: string | null;
+  close_date: string | null;
   contingencies: string | null;
   notes: string | null;
   client_id: string | null;
@@ -32,486 +36,372 @@ type Offer = {
   created_at: string;
 };
 
-type PageState = {
-  loading: boolean;
-  error: string | null;
-  agent: Agent | null;
-  offers: Offer[];
-};
+const PENDING_STATUSES = ['submitted', 'pending', 'counter', 'countered'] as const;
+const STATUS_FILTERS = ['all', 'pending', 'accepted', 'lost'] as const;
+type StatusFilter = (typeof STATUS_FILTERS)[number];
 
-const PENDING_STATUSES = ['submitted', 'counter', 'pending'];
+function formatMoney(v: number | null) {
+  if (v == null) return '—';
+  return `$${v.toLocaleString()}`;
+}
+
+function formatExpiration(iso: string | null) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
 
 function OffersInner() {
-  const [state, setState] = useState<PageState>({
-    loading: true,
-    error: null,
-    agent: null,
-    offers: [],
-  });
+  const [agent, setAgent] = useState<Agent | null>(null);
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // form state
-  const [side, setSide] = useState<'buy' | 'sell' | ''>('');
-  const [offerPrice, setOfferPrice] = useState('');
-  const [earnestMoney, setEarnestMoney] = useState('');
-  const [downPayment, setDownPayment] = useState('');
-  const [status, setStatus] = useState<string>('submitted');
-  const [financingType, setFinancingType] = useState('');
-  const [expiration, setExpiration] = useState(''); // datetime-local
-  const [closeDate, setCloseDate] = useState('');   // date
-  const [contingencies, setContingencies] = useState('');
-  const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
   useEffect(() => {
-    const run = async () => {
-      try {
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
+    const load = async () => {
+      setLoading(true);
+      setLoadError(null);
 
-        if (sessionError) throw sessionError;
-        if (!session) {
-          setState({
-            loading: false,
-            error: 'Not signed in',
-            agent: null,
-            offers: [],
-          });
-          return;
-        }
-
-        const user = session.user;
-
-        // Load agent
-        const { data: agentRow, error: agentError } = await supabase
-          .from('agents')
-          .select('*')
-          .eq('id', user.id)
-          .maybeSingle();
-
-        if (agentError) throw agentError;
-        if (!agentRow) {
-          setState({
-            loading: false,
-            error: 'No agent record found for this user.',
-            agent: null,
-            offers: [],
-          });
-          return;
-        }
-
-        const agent = agentRow as Agent;
-
-        // Load this agent's offers
-        const { data: offers, error: offersError } = await supabase
-          .from('offers')
-          .select('*')
-          .eq('agent_id', agent.id)
-          .order('created_at', { ascending: false });
-
-        if (offersError) throw offersError;
-
-        setState({
-          loading: false,
-          error: null,
-          agent,
-          offers: (offers || []) as Offer[],
-        });
-      } catch (err: any) {
-        console.error('Offers page error:', err);
-        setState({
-          loading: false,
-          error: err?.message ?? 'Failed to load offers',
-          agent: null,
-          offers: [],
-        });
+      const sessionRes = await supabase.auth.getSession();
+      if (sessionRes.error || !sessionRes.data.session) {
+        setAgent(null);
+        setOffers([]);
+        setLoading(false);
+        setLoadError('Not signed in');
+        return;
       }
+
+      const user = sessionRes.data.session.user;
+
+      const { data: agentRow, error: agentError } = await supabase
+        .from('agents')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (agentError || !agentRow) {
+        setAgent(null);
+        setOffers([]);
+        setLoading(false);
+        setLoadError(agentError?.message ?? 'Agent not found.');
+        return;
+      }
+
+      setAgent(agentRow as Agent);
+
+      const { data: offersData, error: offersError } = await supabase
+        .from('offers')
+        .select('*')
+        .eq('agent_id', agentRow.id)
+        .order('created_at', { ascending: false });
+
+      if (offersError) {
+        setLoadError(offersError.message);
+        setOffers([]);
+      } else {
+        setOffers((offersData || []) as Offer[]);
+      }
+
+      setLoading(false);
     };
 
-    run();
+    load();
   }, []);
 
-  const { loading, error, agent, offers } = state;
+  const pendingCount = useMemo(
+    () =>
+      offers.filter((o) =>
+        o.status ? PENDING_STATUSES.includes(o.status as any) : false
+      ).length,
+    [offers]
+  );
 
-  const handleCreateOffer = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!agent) return;
+  const statusCounts = useMemo(() => {
+    const counts: Record<StatusFilter, number> = {
+      all: offers.length,
+      pending: 0,
+      accepted: 0,
+      lost: 0,
+    };
 
-    setFormError(null);
-
-    if (!side) {
-      setFormError('Select buy or sell side.');
-      return;
+    for (const o of offers) {
+      const s = (o.status || '').toLowerCase();
+      if (PENDING_STATUSES.includes(s as any)) counts.pending++;
+      if (s === 'accepted' || s === 'closed') counts.accepted++;
+      if (s === 'rejected' || s === 'withdrawn') counts.lost++;
     }
-    if (!offerPrice) {
-      setFormError('Offer price is required.');
-      return;
-    }
 
-    setSaving(true);
+    return counts;
+  }, [offers]);
 
-    try {
-      const offerPriceNum = Number(offerPrice.replace(/,/g, ''));
-      const earnestNum = earnestMoney
-        ? Number(earnestMoney.replace(/,/g, ''))
-        : null;
-      const downPaymentNum = downPayment
-        ? Number(downPayment.replace(/,/g, ''))
-        : null;
+  const filteredOffers = useMemo(() => {
+    if (statusFilter === 'all') return offers;
 
-      if (Number.isNaN(offerPriceNum)) {
-        throw new Error('Offer price must be a number.');
+    return offers.filter((o) => {
+      const s = (o.status || '').toLowerCase();
+      if (statusFilter === 'pending') {
+        return PENDING_STATUSES.includes(s as any);
       }
-
-      let expirationIso: string | null = null;
-      if (expiration) {
-        const expDate = new Date(expiration);
-        if (isNaN(expDate.getTime())) {
-          throw new Error('Invalid expiration datetime.');
-        }
-        expirationIso = expDate.toISOString();
+      if (statusFilter === 'accepted') {
+        return s === 'accepted' || s === 'closed';
       }
-
-      let closeDateVal: string | null = null;
-      if (closeDate) {
-        // date string is fine for a date column in Postgres
-        closeDateVal = closeDate;
+      if (statusFilter === 'lost') {
+        return s === 'rejected' || s === 'withdrawn';
       }
-
-      const { data, error: insertError } = await supabase
-        .from('offers')
-        .insert({
-          side,
-          offer_price: offerPriceNum,
-          earnest_money: earnestNum,
-          down_payment: downPaymentNum,
-          financing_type: financingType.trim() || null,
-          status: status || 'submitted',
-          status_reason: null,
-          expiration: expirationIso,
-          close_date: closeDateVal,
-          contingencies: contingencies.trim() || null,
-          notes: notes.trim() || null,
-          agent_id: agent.id,              // 🔑 per-agent ownership
-          brokerage_id: agent.brokerage_id // 🔑 per-brokerage ownership
-          // client_id / property_id can be wired later when we add selectors
-        })
-        .select()
-        .single();
-
-      if (insertError) throw insertError;
-
-      setState((prev) => ({
-        ...prev,
-        offers: [data as Offer, ...prev.offers],
-      }));
-
-      // reset form
-      setSide('');
-      setOfferPrice('');
-      setEarnestMoney('');
-      setDownPayment('');
-      setStatus('submitted');
-      setFinancingType('');
-      setExpiration('');
-      setCloseDate('');
-      setContingencies('');
-      setNotes('');
-      setFormError(null);
-    } catch (err: any) {
-      console.error('Create offer error:', err);
-      setFormError(err?.message ?? 'Failed to create offer');
-    } finally {
-      setSaving(false);
-    }
-  };
+      return true;
+    });
+  }, [offers, statusFilter]);
 
   if (loading) {
     return (
-      <main className="p-6">
-        <div className="text-sm text-gray-500">Loading offers…</div>
-      </main>
+      <div className="space-y-6 max-w-5xl">
+        <Card>
+          <p className="text-sm text-slate-300">Loading offers…</p>
+        </Card>
+      </div>
     );
   }
 
   if (!agent) {
     return (
-      <main className="p-6">
-        <div className="text-sm text-red-600">
-          {error || 'Unable to load agent.'}
-        </div>
-      </main>
+      <div className="space-y-6 max-w-5xl">
+        <Card>
+          <p className="text-sm text-red-300">
+            {loadError || 'No agent record.'}
+          </p>
+        </Card>
+      </div>
     );
   }
 
-  const pendingCount = offers.filter((o) =>
-    o.status ? PENDING_STATUSES.includes(o.status) : false,
-  ).length;
-
   return (
-    <main className="p-6 space-y-6 max-w-5xl mx-auto">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">Offers</h1>
-        <p className="text-sm text-gray-500">
-          {agent.full_name || agent.email} • {agent.role}
-        </p>
-        <p className="text-xs text-gray-500">
-          Pending offers (submitted / counter / pending):{' '}
-          <span className="font-semibold">{pendingCount}</span>
-        </p>
+    <div className="space-y-6 max-w-5xl">
+      {/* Header – match Clients style */}
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+            Offers
+          </h1>
+          <p className="text-sm text-slate-300">
+            {agent.full_name || agent.email} • {agent.role}
+          </p>
+          <p className="text-xs text-slate-400">
+            Pending offers:{' '}
+            <span className="font-semibold text-slate-100">
+              {pendingCount}
+            </span>
+          </p>
+        </div>
+
+        <Link href="/offers/new">
+          <Button className="w-full sm:w-auto">+ New offer</Button>
+        </Link>
       </header>
 
-      {/* Create offer form */}
-      <section className="rounded-xl border border-gray-200 bg-white p-4 space-y-4">
-        <h2 className="text-sm font-medium text-gray-800">
-          Create a new offer
-        </h2>
+      {/* Filters (status pills) */}
+      <Card className="space-y-3">
+        <div className="flex flex-wrap gap-2 text-[11px]">
+          <StatusPill
+            label={`All (${statusCounts.all ?? 0})`}
+            active={statusFilter === 'all'}
+            onClick={() => setStatusFilter('all')}
+          />
+          <StatusPill
+            label={`Pending (${statusCounts.pending ?? 0})`}
+            active={statusFilter === 'pending'}
+            onClick={() => setStatusFilter('pending')}
+          />
+          <StatusPill
+            label={`Accepted/Closed (${statusCounts.accepted ?? 0})`}
+            active={statusFilter === 'accepted'}
+            onClick={() => setStatusFilter('accepted')}
+          />
+          <StatusPill
+            label={`Lost (${statusCounts.lost ?? 0})`}
+            active={statusFilter === 'lost'}
+            onClick={() => setStatusFilter('lost')}
+          />
+        </div>
 
-        <form
-          onSubmit={handleCreateOffer}
-          className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm"
-        >
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              Side *
-            </label>
-            <select
-              value={side}
-              onChange={(e) => setSide(e.target.value as any)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-            >
-              <option value="">Select side</option>
-              <option value="buy">Buy side</option>
-              <option value="sell">List side</option>
-            </select>
-          </div>
+        <p className="text-[11px] text-slate-400">
+          Use these pills to quickly focus on active, won, or lost offers.
+        </p>
+      </Card>
 
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              Offer price *
-            </label>
-            <input
-              type="number"
-              value={offerPrice}
-              onChange={(e) => setOfferPrice(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="e.g. 750000"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              Earnest money
-            </label>
-            <input
-              type="number"
-              value={earnestMoney}
-              onChange={(e) => setEarnestMoney(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="e.g. 20000"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              Down payment
-            </label>
-            <input
-              type="number"
-              value={downPayment}
-              onChange={(e) => setDownPayment(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-              placeholder="e.g. 150000"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              Financing type
-            </label>
-            <select
-              value={financingType}
-              onChange={(e) => setFinancingType(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-            >
-              <option value="">Select type</option>
-              <option value="cash">Cash</option>
-              <option value="conventional">Conventional</option>
-              <option value="fha">FHA</option>
-              <option value="va">VA</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              Status
-            </label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-            >
-              <option value="draft">Draft</option>
-              <option value="submitted">Submitted</option>
-              <option value="counter">Counter</option>
-              <option value="pending">Pending</option>
-              <option value="accepted">Accepted</option>
-              <option value="rejected">Rejected</option>
-              <option value="withdrawn">Withdrawn</option>
-              <option value="closed">Closed</option>
-            </select>
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              Expiration
-            </label>
-            <input
-              type="datetime-local"
-              value={expiration}
-              onChange={(e) => setExpiration(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              Close date
-            </label>
-            <input
-              type="date"
-              value={closeDate}
-              onChange={(e) => setCloseDate(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-            />
-          </div>
-
-          <div className="md:col-span-2 space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              Contingencies
-            </label>
-            <textarea
-              value={contingencies}
-              onChange={(e) => setContingencies(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-              rows={2}
-              placeholder="Inspection, loan, appraisal, etc."
-            />
-          </div>
-
-          <div className="md:col-span-2 space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              Notes
-            </label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-              rows={3}
-              placeholder="Additional details about this offer…"
-            />
-          </div>
-
-          {formError && (
-            <div className="md:col-span-2 text-xs text-red-600">
-              {formError}
-            </div>
-          )}
-
-          <div className="md:col-span-2 flex justify-end">
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-indigo-600 text-white text-sm font-medium px-4 py-2 hover:bg-indigo-700 disabled:opacity-60"
-            >
-              {saving ? 'Saving…' : 'Create offer'}
-            </button>
-          </div>
-        </form>
-      </section>
-
-      {/* Offers list */}
-      <section className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
-        <h2 className="text-sm font-medium text-gray-800">My offers</h2>
-
-        {offers.length === 0 ? (
-          <p className="text-sm text-gray-500">
-            No offers yet. Add one using the form above.
+      {/* Errors */}
+      {loadError && (
+        <Card>
+          <p className="text-sm text-red-300">
+            Error loading offers: {loadError}
           </p>
-        ) : (
-          <div className="divide-y divide-gray-100">
-            {offers.map((o) => {
-              const created = new Date(o.created_at);
-              const exp = o.expiration ? new Date(o.expiration) : null;
+        </Card>
+      )}
 
-              return (
-                <div key={o.id} className="py-3 flex flex-col gap-1 text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-medium">
-                      {o.side ? (o.side === 'buy' ? 'Buy side' : 'List side') : 'Offer'}
-                      {o.status && (
-                        <span className="ml-2 text-xs rounded-full bg-gray-100 px-2 py-0.5 text-gray-600 capitalize">
-                          {o.status}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-gray-400">
-                      {created.toLocaleDateString()}
-                    </div>
-                  </div>
-
-                  <div className="text-xs text-gray-600 flex flex-wrap gap-3">
-                    {o.offer_price !== null && (
-                      <span>
-                        Offer:{' '}
-                        <span className="font-semibold">
-                          ${o.offer_price.toLocaleString()}
-                        </span>
-                      </span>
-                    )}
-                    {o.earnest_money !== null && (
-                      <span>Earnest: ${o.earnest_money.toLocaleString()}</span>
-                    )}
-                    {o.down_payment !== null && (
-                      <span>Down: ${o.down_payment.toLocaleString()}</span>
-                    )}
-                    {o.financing_type && (
-                      <span>Financing: {o.financing_type}</span>
-                    )}
-                    {o.close_date && <span>Close: {o.close_date}</span>}
-                    {exp && (
-                      <span>
-                        Expires:{' '}
-                        {exp.toLocaleString([], {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    )}
-                  </div>
-
-                  {o.contingencies && (
-                    <div className="text-xs text-gray-500 line-clamp-2">
-                      Contingencies: {o.contingencies}
-                    </div>
-                  )}
-                  {o.notes && (
-                    <div className="text-xs text-gray-500 line-clamp-2">
-                      Notes: {o.notes}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+      {/* Empty state */}
+      {!loadError && filteredOffers.length === 0 && (
+        <Card>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <p className="text-sm text-slate-300">
+              No offers match this view. Click{' '}
+              <span className="font-semibold">New offer</span> to create
+              your first one.
+            </p>
+            <Link href="/offers/new">
+              <Button variant="secondary" className="w-full sm:w-auto">
+                + New offer
+              </Button>
+            </Link>
           </div>
-        )}
-      </section>
-    </main>
+        </Card>
+      )}
+
+      {/* Offers table */}
+      {!loadError && filteredOffers.length > 0 && (
+        <Card className="p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-white/5 text-xs uppercase text-slate-300">
+                <tr>
+                  <th className="px-3 py-2 text-left border-b border-white/10">
+                    Side
+                  </th>
+                  <th className="px-3 py-2 text-left border-b border-white/10">
+                    Status
+                  </th>
+                  <th className="px-3 py-2 text-right border-b border-white/10">
+                    Offer
+                  </th>
+                  <th className="px-3 py-2 text-right border-b border-white/10 hidden md:table-cell">
+                    Earnest
+                  </th>
+                  <th className="px-3 py-2 text-right border-b border-white/10 hidden md:table-cell">
+                    Down
+                  </th>
+                  <th className="px-3 py-2 text-left border-b border-white/10 hidden sm:table-cell">
+                    Financing
+                  </th>
+                  <th className="px-3 py-2 text-left border-b border-white/10 hidden lg:table-cell">
+                    Close date
+                  </th>
+                  <th className="px-3 py-2 text-left border-b border-white/10 hidden lg:table-cell">
+                    Expires
+                  </th>
+                  <th className="px-3 py-2 text-right border-b border-white/10">
+                    Created
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredOffers.map((o) => {
+                  const created = new Date(o.created_at);
+                  const sideLabel =
+                    o.side === 'buy'
+                      ? 'Buy side'
+                      : o.side === 'sell'
+                      ? 'List side'
+                      : '—';
+
+                  return (
+                    <tr
+                      key={o.id}
+                      className="hover:bg-white/5 transition-colors text-slate-100"
+                    >
+                      <td className="px-3 py-2 border-b border-white/5 align-top">
+                        <span className="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-[11px] capitalize text-slate-100 border border-white/15">
+                          {sideLabel}
+                        </span>
+                      </td>
+
+                      <td className="px-3 py-2 border-b border-white/5 align-top">
+                        <span className="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-[11px] capitalize text-slate-100 border border-white/15">
+                          {(o.status || 'draft').replace('_', ' ')}
+                        </span>
+                        {o.status_reason && (
+                          <div className="mt-0.5 text-[11px] text-slate-400 line-clamp-2">
+                            {o.status_reason}
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="px-3 py-2 border-b border-white/5 align-top text-right">
+                        <span className="font-medium">
+                          {formatMoney(o.offer_price)}
+                        </span>
+                      </td>
+
+                      <td className="px-3 py-2 border-b border-white/5 align-top text-right hidden md:table-cell">
+                        {formatMoney(o.earnest_money)}
+                      </td>
+
+                      <td className="px-3 py-2 border-b border-white/5 align-top text-right hidden md:table-cell">
+                        {formatMoney(o.down_payment)}
+                      </td>
+
+                      <td className="px-3 py-2 border-b border-white/5 align-top hidden sm:table-cell">
+                        <span className="text-xs text-slate-200 capitalize">
+                          {o.financing_type || '—'}
+                        </span>
+                      </td>
+
+                      <td className="px-3 py-2 border-b border-white/5 align-top hidden lg:table-cell">
+                        <span className="text-xs text-slate-200">
+                          {o.close_date || '—'}
+                        </span>
+                      </td>
+
+                      <td className="px-3 py-2 border-b border-white/5 align-top hidden lg:table-cell">
+                        <span className="text-xs text-slate-200">
+                          {formatExpiration(o.expiration)}
+                        </span>
+                      </td>
+
+                      <td className="px-3 py-2 border-b border-white/5 align-top text-right">
+                        <span className="text-xs text-slate-300">
+                          {created.toLocaleDateString()}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function StatusPill({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'px-3 py-1 rounded-full border text-xs transition whitespace-nowrap',
+        active
+          ? 'bg-white/20 text-white border-white/40 shadow-sm'
+          : 'bg-black/30 text-slate-200 border-white/15 hover:bg-white/10',
+      ].join(' ')}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -522,4 +412,6 @@ export default function OffersPage() {
     </RequireAuth>
   );
 }
+
+
 

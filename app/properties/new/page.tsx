@@ -93,105 +93,108 @@ export default function NewPropertyPage() {
     router.push('/properties');
   };
 
+  const inputClass =
+    'w-full rounded-md border border-white/15 bg-black/60 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500';
+  const labelClass = 'block text-xs font-medium text-slate-300 mb-1';
+
   return (
-    <main className="min-h-screen p-6 max-w-3xl mx-auto">
-      <header className="flex items-center justify-between mb-4 gap-2">
+    <main className="min-h-screen max-w-3xl text-slate-100">
+      <header className="flex items-center justify-between mb-5 gap-2">
         <div>
-          <h1 className="text-2xl font-bold">Add Property</h1>
-          <p className="text-sm text-gray-600">
-            Quick entry for a new deal to track.
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
+            Add Property
+          </h1>
+          <p className="text-sm text-slate-300 mt-1">
+            Quick entry for a new deal to track. MLS data can attach later.
           </p>
         </div>
 
         <Link
           href="/properties"
-          className="text-sm text-gray-600 hover:underline"
+          className="text-xs sm:text-sm text-slate-300 hover:text-slate-50 hover:underline"
         >
           ← Back to Properties
         </Link>
       </header>
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && (
+          <p className="text-sm text-red-100 bg-red-500/20 border border-red-500/40 rounded-lg px-3 py-2">
+            {error}
+          </p>
+        )}
 
         {/* Basic address block */}
-        <section className="border border-gray-200 rounded-lg p-4 space-y-4">
-          <h2 className="text-sm font-semibold text-gray-700">
-            Address & Basics
-          </h2>
+        <section className="border border-white/10 rounded-xl bg-black/40 p-4 sm:p-5 space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-100">
+              Address & basics
+            </h2>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 text-slate-300 border border-white/10">
+              Required
+            </span>
+          </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">
-              Address *
-            </label>
+            <label className={labelClass}>Address *</label>
             <input
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className={inputClass}
               placeholder="123 Main St"
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1">
-                City *
-              </label>
+              <label className={labelClass}>City *</label>
               <input
                 type="text"
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">
-                State *
-              </label>
+              <label className={labelClass}>State *</label>
               <input
                 type="text"
                 value={state}
                 onChange={(e) => setState(e.target.value.toUpperCase())}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
                 maxLength={2}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Zip *
-              </label>
+              <label className={labelClass}>Zip *</label>
               <input
                 type="text"
                 value={zip}
                 onChange={(e) => setZip(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1">
-                List Price
-              </label>
+              <label className={labelClass}>List price</label>
               <input
                 type="text"
                 value={listPrice}
                 onChange={(e) => setListPrice(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
                 placeholder="1500000"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Pipeline Stage
-              </label>
+              <label className={labelClass}>Pipeline stage</label>
               <select
                 value={pipelineStage}
                 onChange={(e) => setPipelineStage(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
               >
                 <option value="watching">Watching</option>
                 <option value="called">Called</option>
@@ -204,13 +207,11 @@ export default function NewPropertyPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">
-              Property Type
-            </label>
+            <label className={labelClass}>Property type</label>
             <select
               value={propertyType}
               onChange={(e) => setPropertyType(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className={inputClass}
             >
               <option value="industrial">Industrial</option>
               <option value="commercial">Commercial</option>
@@ -225,33 +226,34 @@ export default function NewPropertyPage() {
         </section>
 
         {/* MLS block */}
-        <section className="border border-gray-200 rounded-lg p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-gray-700">
-            MLS Info (optional)
-          </h2>
+        <section className="border border-white/10 rounded-xl bg-black/40 p-4 sm:p-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-100">
+              MLS info
+            </h2>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 text-slate-400 border border-white/10">
+              Optional
+            </span>
+          </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1">
-                MLS ID
-              </label>
+              <label className={labelClass}>MLS ID</label>
               <input
                 type="text"
                 value={mlsId}
                 onChange={(e) => setMlsId(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
                 placeholder="CRMLS ID"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">
-                MLS URL
-              </label>
+              <label className={labelClass}>MLS URL</label>
               <input
                 type="text"
                 value={mlsUrl}
                 onChange={(e) => setMlsUrl(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
                 placeholder="Full link to MLS listing"
               />
             </div>
@@ -259,99 +261,90 @@ export default function NewPropertyPage() {
         </section>
 
         {/* Commercial / industrial metrics */}
-        <section className="border border-gray-200 rounded-lg p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-gray-700">
-            Commercial / Industrial (optional)
-          </h2>
+        <section className="border border-white/10 rounded-xl bg-black/40 p-4 sm:p-5 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-100">
+              Commercial / industrial metrics
+            </h2>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 text-slate-400 border border-white/10">
+              Optional
+            </span>
+          </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1">
-                APN
-              </label>
+              <label className={labelClass}>APN</label>
               <input
                 type="text"
                 value={apn}
                 onChange={(e) => setApn(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
                 placeholder="Assessor Parcel Number"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Zoning
-              </label>
+              <label className={labelClass}>Zoning</label>
               <input
                 type="text"
                 value={zoning}
                 onChange={(e) => setZoning(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
                 placeholder="M1, C2, etc."
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1">
-                # of Units
-              </label>
+              <label className={labelClass}># of units</label>
               <input
                 type="text"
                 value={numUnits}
                 onChange={(e) => setNumUnits(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
                 placeholder="e.g., 4"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Occupancy %
-              </label>
+              <label className={labelClass}>Occupancy %</label>
               <input
                 type="text"
                 value={occupancyPct}
                 onChange={(e) => setOccupancyPct(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
                 placeholder="e.g., 90"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1">
-                NOI (Annual)
-              </label>
+              <label className={labelClass}>NOI (annual)</label>
               <input
                 type="text"
                 value={noiAnnual}
                 onChange={(e) => setNoiAnnual(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
                 placeholder="e.g., 250000"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Cap Rate (%)
-              </label>
+              <label className={labelClass}>Cap rate (%)</label>
               <input
                 type="text"
                 value={capRate}
                 onChange={(e) => setCapRate(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
                 placeholder="e.g., 6.5"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">
-                Parking Spaces
-              </label>
+              <label className={labelClass}>Parking spaces</label>
               <input
                 type="text"
                 value={parkingSpaces}
                 onChange={(e) => setParkingSpaces(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className={inputClass}
                 placeholder="e.g., 42"
               />
             </div>
@@ -361,9 +354,9 @@ export default function NewPropertyPage() {
         <button
           type="submit"
           disabled={saving}
-          className="inline-flex items-center px-4 py-2 rounded-md bg-black text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-60"
+          className="inline-flex items-center rounded-lg bg-[#EBD27A] px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm hover:bg-[#f0dc96] disabled:opacity-60"
         >
-          {saving ? 'Saving…' : 'Save Property'}
+          {saving ? 'Saving…' : 'Save property'}
         </button>
       </form>
     </main>

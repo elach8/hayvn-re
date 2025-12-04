@@ -1,8 +1,11 @@
+// /app/search/page.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { Card } from '../components/Card';
+import { Button } from '../components/Button';
 
 type Property = {
   id: string;
@@ -121,51 +124,64 @@ export default function SearchPage() {
   };
 
   return (
-    <main className="min-h-screen">
-      <h1 className="text-2xl font-bold mb-2">Search</h1>
-      <p className="text-sm text-gray-700 mb-4">
-        Search across your tracked properties by address, type, stage,
-        and price. Later, this becomes the agent-first UI on top of
-        live MLS data.
-      </p>
+    <div className="space-y-6">
+      {/* Header */}
+      <header className="space-y-1">
+        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+          Search
+        </h1>
+        <p className="text-sm text-slate-300 max-w-2xl">
+          Search across your tracked properties by address, type, stage, and price.
+          This will later sit on top of live MLS data, but the workflow stays the same.
+        </p>
+      </header>
 
       {/* Filters */}
-      <section className="border border-gray-200 rounded-lg p-4 mb-4 space-y-3">
+      <Card className="space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-100 uppercase tracking-wide">
+            Filters
+          </h2>
+          <p className="text-[11px] text-slate-400">
+            Results update instantly as you type.
+          </p>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs font-medium mb-1">
+            <label className="block text-[11px] font-medium mb-1 text-slate-300">
               Address / City / Zip
             </label>
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
               placeholder="e.g., Main St, Irvine, 92614"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium mb-1">
+            <label className="block text-[11px] font-medium mb-1 text-slate-300">
               City
             </label>
             <input
               type="text"
               value={city}
               onChange={(e) => setCity(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
               placeholder="Exact city match"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium mb-1">
+            <label className="block text-[11px] font-medium mb-1 text-slate-300">
               Property Type
             </label>
             <select
               value={type}
               onChange={(e) => setType(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
             >
               <option value="">Any</option>
               {TYPES.map((t) => (
@@ -179,13 +195,13 @@ export default function SearchPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs font-medium mb-1">
+            <label className="block text-[11px] font-medium mb-1 text-slate-300">
               Pipeline Stage
             </label>
             <select
               value={stage}
               onChange={(e) => setStage(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
             >
               <option value="">Any</option>
               {STAGES.map((s) => (
@@ -197,115 +213,141 @@ export default function SearchPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium mb-1">
+            <label className="block text-[11px] font-medium mb-1 text-slate-300">
               Min Price
             </label>
             <input
               type="text"
               value={minPrice}
               onChange={(e) => setMinPrice(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
               placeholder="e.g., 1000000"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium mb-1">
+            <label className="block text-[11px] font-medium mb-1 text-slate-300">
               Max Price
             </label>
             <input
               type="text"
               value={maxPrice}
               onChange={(e) => setMaxPrice(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
               placeholder="e.g., 5000000"
             />
           </div>
         </div>
 
-        <p className="text-[11px] text-gray-500">
-          Filters apply instantly as you type. MLS-backed search will
-          plug into this same layout later.
+        <p className="text-[11px] text-slate-400">
+          This is your agent-first search layer. When MLS is wired in, these same
+          filters will drive live inventory.
         </p>
-      </section>
+      </Card>
 
-      {/* Results */}
-      {loading && <p>Loading properties…</p>}
+      {/* Loading / error states */}
+      {loading && (
+        <Card>
+          <p className="text-sm text-slate-300">Loading properties…</p>
+        </Card>
+      )}
 
       {error && (
-        <p className="text-sm text-red-600 mb-4">
-          Error loading properties: {error}
-        </p>
+        <Card>
+          <p className="text-sm text-red-300">
+            Error loading properties: {error}
+          </p>
+        </Card>
       )}
 
+      {/* Empty system state */}
       {!loading && !error && allProperties.length === 0 && (
-        <p className="text-sm text-gray-600">
-          No properties in the system yet. Add some in the Properties
-          section.
-        </p>
+        <Card>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <p className="text-sm text-slate-300">
+              No properties in the system yet. Add some in the Properties section.
+            </p>
+            <Link href="/properties/new">
+              <Button variant="secondary" className="w-full sm:w-auto">
+                + Quick add property
+              </Button>
+            </Link>
+          </div>
+        </Card>
       )}
 
+      {/* Results */}
       {!loading && !error && allProperties.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between mb-2 text-xs text-gray-600">
+        <Card className="space-y-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-300">
             <span>
-              Showing {filtered.length} of {allProperties.length} tracked
+              Showing <span className="font-semibold">{filtered.length}</span> of{' '}
+              <span className="font-semibold">{allProperties.length}</span> tracked
               properties
             </span>
-            <Link
-              href="/properties/new"
-              className="text-xs text-blue-600 hover:underline"
-            >
-              + Quick add property
+            <Link href="/properties/new">
+              <Button variant="secondary" className="w-full sm:w-auto">
+                + Quick add property
+              </Button>
             </Link>
           </div>
 
           {filtered.length === 0 ? (
-            <p className="text-sm text-gray-600">
-              No results match the current filters. Try clearing some
-              fields.
+            <p className="text-sm text-slate-300">
+              No results match the current filters. Try clearing some fields.
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full border border-gray-200 text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="border px-2 py-1 text-left">
+              <table className="min-w-full text-sm border border-white/10">
+                <thead className="bg-white/5">
+                  <tr className="text-xs text-slate-300">
+                    <th className="border-b border-white/10 px-3 py-2 text-left">
                       Address
                     </th>
-                    <th className="border px-2 py-1 text-left">
+                    <th className="border-b border-white/10 px-3 py-2 text-left">
                       City
                     </th>
-                    <th className="border px-2 py-1 text-left">
+                    <th className="border-b border-white/10 px-3 py-2 text-left">
                       State
                     </th>
-                    <th className="border px-2 py-1 text-left">Stage</th>
-                    <th className="border px-2 py-1 text-left">Type</th>
-                    <th className="border px-2 py-1 text-right">
+                    <th className="border-b border-white/10 px-3 py-2 text-left">
+                      Stage
+                    </th>
+                    <th className="border-b border-white/10 px-3 py-2 text-left">
+                      Type
+                    </th>
+                    <th className="border-b border-white/10 px-3 py-2 text-right">
                       Price
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((p) => (
-                    <tr key={p.id} className="hover:bg-gray-50">
-                      <td className="border px-2 py-1">
+                    <tr
+                      key={p.id}
+                      className="hover:bg-white/5 transition-colors text-slate-100"
+                    >
+                      <td className="border-t border-white/5 px-3 py-2">
                         <Link
                           href={`/properties/${p.id}`}
-                          className="text-blue-600 hover:underline"
+                          className="text-[#EBD27A] hover:underline"
                         >
                           {p.address}
                         </Link>
                       </td>
-                      <td className="border px-2 py-1">{p.city}</td>
-                      <td className="border px-2 py-1">{p.state}</td>
-                      <td className="border px-2 py-1">
+                      <td className="border-t border-white/5 px-3 py-2">
+                        {p.city}
+                      </td>
+                      <td className="border-t border-white/5 px-3 py-2">
+                        {p.state}
+                      </td>
+                      <td className="border-t border-white/5 px-3 py-2 text-xs uppercase tracking-wide text-slate-300">
                         {p.pipeline_stage}
                       </td>
-                      <td className="border px-2 py-1">
+                      <td className="border-t border-white/5 px-3 py-2">
                         {p.property_type || '-'}
                       </td>
-                      <td className="border px-2 py-1 text-right">
+                      <td className="border-t border-white/5 px-3 py-2 text-right">
                         {formatCurrency(p.list_price)}
                       </td>
                     </tr>
@@ -314,8 +356,8 @@ export default function SearchPage() {
               </table>
             </div>
           )}
-        </section>
+        </Card>
       )}
-    </main>
+    </div>
   );
 }

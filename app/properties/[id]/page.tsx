@@ -1,3 +1,4 @@
+// app/properties/[id]/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -515,79 +516,90 @@ export default function PropertyDetailPage() {
     return `up to ${toMoney(max)}`;
   };
 
+  const inputClass =
+    'w-full rounded-md border border-white/15 bg-black/60 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500';
+  const labelClass = 'block text-xs font-medium text-slate-300 mb-1';
+
   return (
-    <main className="min-h-screen p-0 max-w-4xl mx-auto">
-      <header className="flex items-center justify-between mb-4 gap-2 px-6 pt-6">
+    <main className="min-h-screen max-w-4xl mx-auto text-slate-100">
+      <header className="flex items-center justify-between mb-5 gap-2 pt-6">
         <Link
           href="/properties"
-          className="text-sm text-gray-600 hover:underline"
+          className="text-xs sm:text-sm text-slate-300 hover:text-slate-50 hover:underline"
         >
           ← Back to Properties
         </Link>
 
-        <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700">
-          Property Detail
+        <span className="text-[11px] px-2 py-1 rounded-full bg-white/5 text-slate-200 border border-white/10">
+          Property detail
         </span>
       </header>
 
-      {loading && <p className="px-6">Loading property…</p>}
+      {loading && <p className="text-sm text-slate-200">Loading property…</p>}
 
       {error && (
-        <p className="text-red-600 mb-4 px-6">
+        <p className="text-sm text-red-100 bg-red-500/20 border border-red-500/40 rounded-lg px-3 py-2 mb-4">
           Error loading property: {error}
         </p>
       )}
 
       {!loading && !error && !property && (
-        <p className="px-6">Property not found.</p>
+        <p className="text-sm text-slate-200">Property not found.</p>
       )}
 
       {!loading && !error && property && (
-        <div className="px-6 pb-6 space-y-6">
+        <div className="pb-8 space-y-6">
           {/* Property summary */}
-          <section className="border border-gray-200 rounded-lg p-4">
-            <h1 className="text-xl font-bold mb-1">
-              {property.address}
-            </h1>
-            <p className="text-sm text-gray-700 mb-2">
-              {property.city}, {property.state} {property.zip}
-            </p>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+          <section className="border border-white/10 rounded-xl bg-black/40 p-4 sm:p-5 space-y-3">
+            <div className="flex items-start justify-between gap-2">
               <div>
-                <div className="text-gray-500">List Price</div>
+                <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mb-1">
+                  {property.address}
+                </h1>
+                <p className="text-sm text-slate-300">
+                  {property.city}, {property.state} {property.zip}
+                </p>
+              </div>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 text-slate-300 border border-white/10">
+                {property.pipeline_stage}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm mt-3">
+              <div>
+                <div className="text-slate-400">List price</div>
                 <div className="font-semibold">
                   {formatCurrency(property.list_price)}
                 </div>
               </div>
               <div>
-                <div className="text-gray-500">Type</div>
+                <div className="text-slate-400">Type</div>
                 <div className="font-semibold">
-                  {property.property_type || '-'}
+                  {property.property_type || '—'}
                 </div>
               </div>
               <div>
-                <div className="text-gray-500">Pipeline Stage</div>
-                <div className="font-semibold">
-                  {property.pipeline_stage}
+                <div className="text-slate-400">Pipeline stage</div>
+                <div className="font-semibold capitalize">
+                  {property.pipeline_stage.replace('_', ' ')}
                 </div>
               </div>
               {property.mls_id && (
                 <div>
-                  <div className="text-gray-500">MLS ID</div>
+                  <div className="text-slate-400">MLS ID</div>
                   <div className="font-semibold">{property.mls_id}</div>
                 </div>
               )}
               {property.mls_url && (
-                <div className="col-span-2">
-                  <div className="text-gray-500">MLS Link</div>
+                <div className="sm:col-span-2">
+                  <div className="text-slate-400">MLS link</div>
                   <a
                     href={property.mls_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline break-all"
+                    className="text-sm text-indigo-300 hover:text-indigo-200 hover:underline break-all"
                   >
-                    Open in MLS
+                    Open in MLS →
                   </a>
                 </div>
               )}
@@ -602,26 +614,31 @@ export default function PropertyDetailPage() {
             property.noi_annual != null ||
             property.cap_rate != null ||
             property.parking_spaces != null) && (
-            <section className="border border-gray-200 rounded-lg p-4">
-              <h2 className="text-lg font-semibold mb-3">
-                Investment Metrics
-              </h2>
+            <section className="border border-white/10 rounded-xl bg-black/40 p-4 sm:p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-slate-100">
+                  Investment metrics
+                </h2>
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 text-slate-400 border border-white/10">
+                  Commercial / industrial
+                </span>
+              </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
                 {property.apn && (
                   <div>
-                    <div className="text-gray-500">APN</div>
+                    <div className="text-slate-400">APN</div>
                     <div className="font-semibold">{property.apn}</div>
                   </div>
                 )}
                 {property.zoning && (
                   <div>
-                    <div className="text-gray-500">Zoning</div>
+                    <div className="text-slate-400">Zoning</div>
                     <div className="font-semibold">{property.zoning}</div>
                   </div>
                 )}
                 {property.num_units != null && (
                   <div>
-                    <div className="text-gray-500">Units</div>
+                    <div className="text-slate-400">Units</div>
                     <div className="font-semibold">
                       {property.num_units}
                     </div>
@@ -629,7 +646,7 @@ export default function PropertyDetailPage() {
                 )}
                 {property.occupancy_pct != null && (
                   <div>
-                    <div className="text-gray-500">Occupancy</div>
+                    <div className="text-slate-400">Occupancy</div>
                     <div className="font-semibold">
                       {formatPercent(property.occupancy_pct)}
                     </div>
@@ -637,7 +654,7 @@ export default function PropertyDetailPage() {
                 )}
                 {property.noi_annual != null && (
                   <div>
-                    <div className="text-gray-500">NOI (Annual)</div>
+                    <div className="text-slate-400">NOI (annual)</div>
                     <div className="font-semibold">
                       {formatCurrency(property.noi_annual)}
                     </div>
@@ -645,7 +662,7 @@ export default function PropertyDetailPage() {
                 )}
                 {property.cap_rate != null && (
                   <div>
-                    <div className="text-gray-500">Cap Rate</div>
+                    <div className="text-slate-400">Cap rate</div>
                     <div className="font-semibold">
                       {formatCapRate(property.cap_rate)}
                     </div>
@@ -653,7 +670,7 @@ export default function PropertyDetailPage() {
                 )}
                 {property.parking_spaces != null && (
                   <div>
-                    <div className="text-gray-500">Parking Spaces</div>
+                    <div className="text-slate-400">Parking spaces</div>
                     <div className="font-semibold">
                       {property.parking_spaces}
                     </div>
@@ -664,19 +681,21 @@ export default function PropertyDetailPage() {
           )}
 
           {/* Contacts section */}
-          <section className="border border-gray-200 rounded-lg p-4">
+          <section className="border border-white/10 rounded-xl bg-black/40 p-4 sm:p-5">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold">Contacts</h2>
+              <h2 className="text-sm font-semibold text-slate-100">
+                Contacts
+              </h2>
               <Link
                 href="/contacts/new"
-                className="text-xs text-blue-600 hover:underline"
+                className="text-xs text-indigo-300 hover:text-indigo-200 hover:underline"
               >
                 + New contact
               </Link>
             </div>
 
             {contactsError && (
-              <p className="text-sm text-red-600 mb-2">
+              <p className="text-sm text-red-300 mb-2">
                 Error loading contacts: {contactsError}
               </p>
             )}
@@ -684,16 +703,14 @@ export default function PropertyDetailPage() {
             {/* Attach existing contact */}
             <form
               onSubmit={handleAttachContact}
-              className="flex flex-col sm:flex-row gap-2 mb-4"
+              className="flex flex-col sm:flex-row gap-3 mb-4 text-sm"
             >
               <div className="flex-1">
-                <label className="block text-xs font-medium mb-1">
-                  Contact
-                </label>
+                <label className={labelClass}>Contact</label>
                 <select
                   value={selectedContactId}
                   onChange={(e) => setSelectedContactId(e.target.value)}
-                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  className={inputClass}
                 >
                   <option value="">Select contact…</option>
                   {allContacts.map((c) => (
@@ -706,14 +723,12 @@ export default function PropertyDetailPage() {
               </div>
 
               <div className="flex-1">
-                <label className="block text-xs font-medium mb-1">
-                  Relationship
-                </label>
+                <label className={labelClass}>Relationship</label>
                 <input
                   type="text"
                   value={relationship}
                   onChange={(e) => setRelationship(e.target.value)}
-                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  className={inputClass}
                   placeholder="listing agent, owner, lender…"
                 />
               </div>
@@ -726,7 +741,7 @@ export default function PropertyDetailPage() {
                     contactsLoading ||
                     allContacts.length === 0
                   }
-                  className="w-full sm:w-auto inline-flex items-center px-3 py-2 rounded-md bg-black text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-60"
+                  className="w-full sm:w-auto inline-flex items-center rounded-lg bg-[#EBD27A] px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-[#f0dc96] disabled:opacity-60"
                 >
                   {addingContact ? 'Adding…' : 'Attach'}
                 </button>
@@ -734,19 +749,19 @@ export default function PropertyDetailPage() {
             </form>
 
             {addContactError && (
-              <p className="text-sm text-red-600 mb-2">
+              <p className="text-sm text-red-300 mb-2">
                 {addContactError}
               </p>
             )}
 
             {contactsLoading && (
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-slate-300">
                 Loading contacts…
               </p>
             )}
 
             {!contactsLoading && propertyContacts.length === 0 && (
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-slate-300">
                 No contacts attached yet. Create a contact or attach an
                 existing one above.
               </p>
@@ -757,27 +772,21 @@ export default function PropertyDetailPage() {
                 {propertyContacts.map((pc) => (
                   <li
                     key={pc.id}
-                    className="border border-gray-200 rounded-md p-3"
+                    className="rounded-lg border border-white/10 bg-black/40 p-3"
                   >
                     <div className="flex justify-between items-center gap-2">
                       <div>
                         <div className="font-semibold">
                           {pc.contact?.name || 'Unknown contact'}
                         </div>
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-slate-400">
                           {pc.relationship || 'Contact'}
-                          {pc.contact?.role
-                            ? ` • ${pc.contact.role}`
-                            : ''}
+                          {pc.contact?.role ? ` • ${pc.contact.role}` : ''}
                         </div>
                       </div>
-                      <div className="text-xs text-right text-gray-500">
-                        {pc.contact?.phone && (
-                          <div>{pc.contact.phone}</div>
-                        )}
-                        {pc.contact?.email && (
-                          <div>{pc.contact.email}</div>
-                        )}
+                      <div className="text-xs text-right text-slate-400 space-y-0.5">
+                        {pc.contact?.phone && <div>{pc.contact.phone}</div>}
+                        {pc.contact?.email && <div>{pc.contact.email}</div>}
                       </div>
                     </div>
                   </li>
@@ -787,19 +796,21 @@ export default function PropertyDetailPage() {
           </section>
 
           {/* Clients section */}
-          <section className="border border-gray-200 rounded-lg p-4">
+          <section className="border border-white/10 rounded-xl bg-black/40 p-4 sm:p-5">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold">Clients</h2>
+              <h2 className="text-sm font-semibold text-slate-100">
+                Clients on this deal
+              </h2>
               <Link
                 href="/clients/new"
-                className="text-xs text-blue-600 hover:underline"
+                className="text-xs text-indigo-300 hover:text-indigo-200 hover:underline"
               >
                 + New client
               </Link>
             </div>
 
             {clientsError && (
-              <p className="text-sm text-red-600 mb-2">
+              <p className="text-sm text-red-300 mb-2">
                 Error loading clients: {clientsError}
               </p>
             )}
@@ -807,40 +818,32 @@ export default function PropertyDetailPage() {
             {/* Attach client form */}
             <form
               onSubmit={handleAttachClient}
-              className="border border-gray-200 rounded-md p-3 mb-3 text-sm space-y-2"
+              className="border border-white/10 rounded-lg bg-black/40 p-3 mb-3 text-sm space-y-2"
             >
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-xs font-medium mb-1">
-                    Client
-                  </label>
+                  <label className={labelClass}>Client</label>
                   <select
                     value={selectedClientId}
                     onChange={(e) => setSelectedClientId(e.target.value)}
-                    className="w-full border rounded-md px-2 py-1 text-sm"
+                    className={inputClass.replace('px-3 py-2', 'px-2 py-1')}
                   >
                     <option value="">Select client…</option>
                     {allClients.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
-                        {c.client_type
-                          ? ` (${c.client_type})`
-                          : ''}
+                        {c.client_type ? ` (${c.client_type})` : ''}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium mb-1">
-                    Relationship
-                  </label>
+                  <label className={labelClass}>Relationship</label>
                   <select
                     value={clientRelationship}
-                    onChange={(e) =>
-                      setClientRelationship(e.target.value)
-                    }
-                    className="w-full border rounded-md px-2 py-1 text-sm"
+                    onChange={(e) => setClientRelationship(e.target.value)}
+                    className={inputClass.replace('px-3 py-2', 'px-2 py-1')}
                   >
                     <option value="favorite">favorite</option>
                     <option value="toured">toured</option>
@@ -851,15 +854,11 @@ export default function PropertyDetailPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium mb-1">
-                    Interest Level
-                  </label>
+                  <label className={labelClass}>Interest level</label>
                   <select
                     value={clientInterestLevel}
-                    onChange={(e) =>
-                      setClientInterestLevel(e.target.value)
-                    }
-                    className="w-full border rounded-md px-2 py-1 text-sm"
+                    onChange={(e) => setClientInterestLevel(e.target.value)}
+                    className={inputClass.replace('px-3 py-2', 'px-2 py-1')}
                   >
                     <option value="hot">hot</option>
                     <option value="warm">warm</option>
@@ -869,14 +868,12 @@ export default function PropertyDetailPage() {
               </div>
 
               <div className="flex items-center justify-between mt-1">
-                <label className="flex items-center gap-2 text-xs text-gray-700">
+                <label className="flex items-center gap-2 text-xs text-slate-300">
                   <input
                     type="checkbox"
                     checked={clientIsFavorite}
-                    onChange={(e) =>
-                      setClientIsFavorite(e.target.checked)
-                    }
-                    className="h-3 w-3"
+                    onChange={(e) => setClientIsFavorite(e.target.checked)}
+                    className="h-3 w-3 rounded border border-white/30 bg-black/60"
                   />
                   Mark as favorite for this client
                 </label>
@@ -888,27 +885,27 @@ export default function PropertyDetailPage() {
                     clientsLoading ||
                     allClients.length === 0
                   }
-                  className="inline-flex items-center px-3 py-1.5 rounded-md bg-black text-white text-xs font-medium hover:bg-gray-800 disabled:opacity-60"
+                  className="inline-flex items-center rounded-lg bg-[#EBD27A] px-3 py-1.5 text-xs font-semibold text-slate-900 shadow-sm hover:bg-[#f0dc96] disabled:opacity-60"
                 >
-                  {attachingClient ? 'Attaching…' : 'Attach Client'}
+                  {attachingClient ? 'Attaching…' : 'Attach client'}
                 </button>
               </div>
 
               {attachClientError && (
-                <p className="text-xs text-red-600 mt-1">
+                <p className="text-xs text-red-300 mt-1">
                   {attachClientError}
                 </p>
               )}
             </form>
 
             {clientsLoading && (
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-slate-300">
                 Loading property clients…
               </p>
             )}
 
             {!clientsLoading && propertyClients.length === 0 && (
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-slate-300">
                 No clients attached yet. Use the form above to connect
                 this property to a buyer or seller.
               </p>
@@ -916,60 +913,59 @@ export default function PropertyDetailPage() {
 
             {!clientsLoading && propertyClients.length > 0 && (
               <div className="overflow-x-auto">
-                <table className="min-w-full border border-gray-200 text-xs sm:text-sm">
-                  <thead className="bg-gray-50">
+                <table className="min-w-full border border-white/10 text-xs sm:text-sm">
+                  <thead className="bg-white/5 text-slate-300">
                     <tr>
-                      <th className="border px-2 py-1 text-left">
+                      <th className="border border-white/10 px-2 py-1 text-left">
                         Client
                       </th>
-                      <th className="border px-2 py-1 text-left">
+                      <th className="border border-white/10 px-2 py-1 text-left">
                         Relationship
                       </th>
-                      <th className="border px-2 py-1 text-left">
+                      <th className="border border-white/10 px-2 py-1 text-left">
                         Interest
                       </th>
-                      <th className="border px-2 py-1 text-left">
+                      <th className="border border-white/10 px-2 py-1 text-left">
                         Stage
                       </th>
-                      <th className="border px-2 py-1 text-left">
+                      <th className="border border-white/10 px-2 py-1 text-left">
                         Budget
                       </th>
                     </tr>
                   </thead>
                   <tbody>
                     {propertyClients.map((pc) => (
-                      <tr key={pc.id} className="hover:bg-gray-50">
-                        <td className="border px-2 py-1">
+                      <tr key={pc.id} className="hover:bg-white/5">
+                        <td className="border border-white/10 px-2 py-1">
                           {pc.client ? (
                             <Link
                               href={`/clients/${pc.client.id}`}
-                              className="text-blue-600 hover:underline"
+                              className="text-indigo-300 hover:text-indigo-200 hover:underline"
                             >
                               {pc.client.name}
                             </Link>
                           ) : (
-                            <span className="text-gray-400">
+                            <span className="text-slate-500">
                               (missing client)
                             </span>
                           )}
                           {pc.client && (
-                            <div className="text-[11px] text-gray-500">
-                              {pc.client.client_type ||
-                                'unknown type'}
+                            <div className="text-[11px] text-slate-400">
+                              {pc.client.client_type || 'unknown type'}
                               {pc.is_favorite ? ' • ★ favorite' : ''}
                             </div>
                           )}
                         </td>
-                        <td className="border px-2 py-1">
+                        <td className="border border-white/10 px-2 py-1">
                           {pc.relationship || '-'}
                         </td>
-                        <td className="border px-2 py-1">
+                        <td className="border border-white/10 px-2 py-1">
                           {pc.interest_level || '-'}
                         </td>
-                        <td className="border px-2 py-1">
+                        <td className="border border-white/10 px-2 py-1">
                           {pc.client?.stage || '-'}
                         </td>
-                        <td className="border px-2 py-1">
+                        <td className="border border-white/10 px-2 py-1">
                           {pc.client
                             ? formatBudget(
                                 pc.client.budget_min,
@@ -986,35 +982,37 @@ export default function PropertyDetailPage() {
           </section>
 
           {/* Notes section */}
-          <section className="border border-gray-200 rounded-lg p-4">
-            <h2 className="text-lg font-semibold mb-3">Notes</h2>
+          <section className="border border-white/10 rounded-xl bg-black/40 p-4 sm:p-5">
+            <h2 className="text-sm font-semibold text-slate-100 mb-3">
+              Internal notes
+            </h2>
 
             <form onSubmit={handleAddNote} className="space-y-2 mb-4">
               {noteError && (
-                <p className="text-sm text-red-600">{noteError}</p>
+                <p className="text-sm text-red-300">{noteError}</p>
               )}
               <textarea
                 value={newNote}
                 onChange={(e) => setNewNote(e.target.value)}
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className="w-full rounded-md border border-white/15 bg-black/60 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                 rows={3}
                 placeholder="Call recap, seller info, price guidance, issues, etc."
               />
               <button
                 type="submit"
                 disabled={savingNote}
-                className="inline-flex items-center px-3 py-2 rounded-md bg-black text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-60"
+                className="inline-flex items-center rounded-lg bg-[#EBD27A] px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm hover:bg-[#f0dc96] disabled:opacity-60"
               >
-                {savingNote ? 'Saving…' : 'Add Note'}
+                {savingNote ? 'Saving…' : 'Add note'}
               </button>
             </form>
 
             {notesLoading && (
-              <p className="text-sm">Loading notes…</p>
+              <p className="text-sm text-slate-300">Loading notes…</p>
             )}
 
             {!notesLoading && notes.length === 0 && (
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-slate-300">
                 No notes yet. Add your first note above.
               </p>
             )}
@@ -1024,17 +1022,15 @@ export default function PropertyDetailPage() {
                 {notes.map((note) => (
                   <li
                     key={note.id}
-                    className="border border-gray-200 rounded-md p-3"
+                    className="rounded-lg border border-white/10 bg-black/40 p-3"
                   >
-                    <p className="whitespace-pre-wrap mb-1">
+                    <p className="whitespace-pre-wrap mb-1 text-slate-100">
                       {note.body}
                     </p>
-                    <div className="text-xs text-gray-500 flex justify-between">
+                    <div className="text-[11px] text-slate-400 flex justify-between">
                       <span>{note.author || 'Unknown'}</span>
                       <span>
-                        {new Date(
-                          note.created_at
-                        ).toLocaleString()}
+                        {new Date(note.created_at).toLocaleString()}
                       </span>
                     </div>
                   </li>

@@ -1,3 +1,4 @@
+// app/tours/new/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -71,7 +72,7 @@ export default function NewTourPage() {
           (prev) =>
             prev ||
             propertiesRes.error?.message ||
-            'Error loading properties'
+            'Error loading properties',
         );
       } else {
         setProperties((propertiesRes.data || []) as Property[]);
@@ -85,7 +86,7 @@ export default function NewTourPage() {
 
   const togglePropertySelection = (id: string) => {
     setSelectedPropertyIds((prev) =>
-      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id],
     );
   };
 
@@ -164,10 +165,9 @@ export default function NewTourPage() {
       console.error('Error attaching tour properties:', stopsError);
       setSaveError(
         'Tour created, but error attaching properties: ' +
-          stopsError.message
+          stopsError.message,
       );
       setSaving(false);
-      // Still redirect to tour list; you can fix manually later
       router.push('/tours');
       return;
     }
@@ -180,53 +180,51 @@ export default function NewTourPage() {
     v == null ? '' : `$${v.toLocaleString()}`;
 
   return (
-    <main className="min-h-screen max-w-3xl">
-      <header className="flex items-center justify-between mb-3 gap-2">
+    <main className="min-h-screen max-w-3xl mx-auto px-4 sm:px-6 pb-8 text-slate-100">
+      <header className="flex items-center justify-between mb-4 gap-2 pt-6">
         <div>
-          <h1 className="text-2xl font-bold mb-1">New Tour</h1>
-          <p className="text-sm text-gray-700">
-            Schedule a tour for a client and choose which properties
-            you&apos;ll visit.
+          <h1 className="text-2xl font-semibold tracking-tight">New Tour</h1>
+          <p className="text-sm text-slate-400">
+            Schedule a tour for a client and choose which properties you&apos;ll
+            visit.
           </p>
         </div>
         <Link
           href="/tours"
-          className="text-sm text-gray-600 hover:underline"
+          className="text-sm text-slate-300 hover:text-white hover:underline"
         >
           ← Back to Tours
         </Link>
       </header>
 
       {loadingLookups && (
-        <p className="text-sm text-gray-600 mb-4">
+        <p className="text-sm text-slate-300 mb-4">
           Loading clients and properties…
         </p>
       )}
 
       {lookupError && (
-        <p className="text-sm text-red-600 mb-4">
-          {lookupError}
-        </p>
+        <p className="text-sm text-red-300 mb-4">{lookupError}</p>
       )}
 
       <form
         onSubmit={handleSubmit}
-        className="space-y-4 border border-gray-200 rounded-lg p-4"
+        className="space-y-5 border border-white/10 rounded-xl bg-black/40 backdrop-blur-sm p-4 sm:p-5"
       >
         {saveError && (
-          <p className="text-sm text-red-600">{saveError}</p>
+          <p className="text-sm text-red-300">{saveError}</p>
         )}
 
         {/* Client + basic info */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-xs font-semibold mb-1 text-slate-300 uppercase tracking-wide">
               Client *
             </label>
             <select
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full border border-white/10 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
             >
               <option value="">Select client…</option>
               {clients.map((c) => (
@@ -239,13 +237,13 @@ export default function NewTourPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-xs font-semibold mb-1 text-slate-300 uppercase tracking-wide">
               Status
             </label>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full border border-white/10 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
             >
               <option value="planned">planned</option>
               <option value="in_progress">in_progress</option>
@@ -253,98 +251,100 @@ export default function NewTourPage() {
               <option value="cancelled">cancelled</option>
             </select>
           </div>
-        </div>
+        </section>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Title (optional)
-          </label>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full border rounded-md px-3 py-2 text-sm"
-            placeholder="Jane Buyer – Saturday OC Tour"
-          />
-        </div>
-
-        {/* Time */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <section className="space-y-3">
           <div>
-            <label className="block text-sm font-medium mb-1">
-              Start Time *
+            <label className="block text-xs font-semibold mb-1 text-slate-300 uppercase tracking-wide">
+              Title (optional)
             </label>
             <input
-              type="datetime-local"
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full border border-white/10 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
+              placeholder="Jane Buyer – Saturday OC Tour"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              End Time (optional)
-            </label>
-            <input
-              type="datetime-local"
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
-            />
+
+          {/* Time */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold mb-1 text-slate-300 uppercase tracking-wide">
+                Start Time *
+              </label>
+              <input
+                type="datetime-local"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="w-full border border-white/10 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1 text-slate-300 uppercase tracking-wide">
+                End Time (optional)
+              </label>
+              <input
+                type="datetime-local"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="w-full border border-white/10 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
+              />
+            </div>
           </div>
-        </div>
+        </section>
 
         {/* Notes */}
-        <div>
-          <label className="block text-sm font-medium mb-1">
+        <section className="space-y-2">
+          <label className="block text-xs font-semibold mb-1 text-slate-300 uppercase tracking-wide">
             Notes (internal)
           </label>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="w-full border rounded-md px-3 py-2 text-sm"
+            className="w-full border border-white/10 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
             rows={3}
             placeholder="Plan, meet-up details, reminders…"
           />
-        </div>
+        </section>
 
         {/* Property selection */}
-        <div>
-          <label className="block text-sm font-medium mb-1">
+        <section className="space-y-2">
+          <label className="block text-xs font-semibold mb-1 text-slate-300 uppercase tracking-wide">
             Properties for this tour *
           </label>
-          <p className="text-xs text-gray-600 mb-2">
-            Select all properties you plan to show. You can adjust order
-            later in the tour detail view.
+          <p className="text-xs text-slate-400 mb-1">
+            Select all properties you plan to show. You can adjust order later
+            in the tour detail view.
           </p>
 
           {properties.length === 0 && (
-            <p className="text-sm text-gray-600">
-              No properties in the system yet. Add some in the
-              Properties section first.
+            <p className="text-sm text-slate-400">
+              No properties in the system yet. Add some in the Properties
+              section first.
             </p>
           )}
 
           {properties.length > 0 && (
-            <div className="max-h-64 overflow-y-auto border rounded-md p-2 space-y-1 text-sm">
+            <div className="max-h-64 overflow-y-auto border border-white/10 bg-black/30 rounded-md p-2 space-y-1 text-sm">
               {properties.map((p) => {
                 const checked = selectedPropertyIds.includes(p.id);
                 return (
                   <label
                     key={p.id}
-                    className="flex items-center gap-2 px-1 py-1 rounded hover:bg-gray-50 cursor-pointer"
+                    className="flex items-center gap-2 px-1 py-1 rounded hover:bg-white/5 cursor-pointer"
                   >
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={() => togglePropertySelection(p.id)}
-                      className="h-4 w-4"
+                      className="h-4 w-4 rounded border-white/30 bg-black/60 text-[#EBD27A] focus:ring-[#EBD27A]"
                     />
                     <div className="flex-1">
-                      <div className="font-medium">
+                      <div className="font-medium text-slate-100">
                         {p.address}
                       </div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-slate-400">
                         {p.city}, {p.state}{' '}
                         {p.list_price != null &&
                           `• ${formatPrice(p.list_price)}`}
@@ -357,19 +357,18 @@ export default function NewTourPage() {
           )}
 
           {selectedPropertyIds.length > 0 && (
-            <p className="text-xs text-gray-600 mt-1">
+            <p className="text-xs text-slate-400 mt-1">
               {selectedPropertyIds.length} property
-              {selectedPropertyIds.length === 1 ? '' : 'ies'} selected
-              (will become stops 1–
-              {selectedPropertyIds.length}).
+              {selectedPropertyIds.length === 1 ? '' : 'ies'} selected (will
+              become stops 1–{selectedPropertyIds.length}).
             </p>
           )}
-        </div>
+        </section>
 
         <button
           type="submit"
           disabled={saving || loadingLookups}
-          className="inline-flex items-center px-4 py-2 rounded-md bg-black text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-60"
+          className="inline-flex items-center px-4 py-2 rounded-full bg-[#EBD27A] text-slate-900 text-sm font-semibold hover:bg-[#f1db91] disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
         >
           {saving ? 'Creating tour…' : 'Create Tour'}
         </button>

@@ -1,3 +1,4 @@
+// app/tours/[id]/page.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -78,7 +79,7 @@ export default function TourDetailPage() {
             name,
             client_type
           )
-        `
+        `,
         )
         .eq('id', id)
         .maybeSingle();
@@ -88,7 +89,7 @@ export default function TourDetailPage() {
         setError(error.message);
         setTour(null);
       } else if (data) {
-        const row = data as any; // allow joined "clients" field
+        const row = data as any;
 
         const t: Tour = {
           id: row.id,
@@ -130,7 +131,7 @@ export default function TourDetailPage() {
             property_type,
             pipeline_stage
           )
-        `
+        `,
         )
         .eq('tour_id', id)
         .order('stop_order', { ascending: true });
@@ -180,7 +181,7 @@ export default function TourDetailPage() {
   const updateStopField = (
     stopId: string,
     field: 'client_feedback' | 'client_rating' | 'stop_order',
-    value: string
+    value: string,
   ) => {
     setStops((prev) =>
       prev.map((s) => {
@@ -202,7 +203,7 @@ export default function TourDetailPage() {
           };
         }
         return { ...s, client_feedback: value };
-      })
+      }),
     );
   };
 
@@ -267,45 +268,47 @@ export default function TourDetailPage() {
   }, [stops]);
 
   return (
-    <main className="min-h-screen max-w-4xl">
-      <header className="flex items-center justify-between mb-4 gap-2">
+    <main className="min-h-screen max-w-4xl mx-auto px-4 sm:px-6 pb-8 text-slate-100">
+      <header className="flex items-center justify-between mb-4 gap-2 pt-6">
         <Link
           href="/tours"
-          className="text-sm text-gray-600 hover:underline"
+          className="text-sm text-slate-300 hover:text-white hover:underline"
         >
           ← Back to Tours
         </Link>
-        <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700">
+        <span className="text-[11px] px-2 py-1 rounded-full bg-white/5 border border-white/10 text-slate-300 uppercase tracking-wide">
           Tour Detail
         </span>
       </header>
 
-      {loading && <p>Loading tour…</p>}
+      {loading && (
+        <p className="text-sm text-slate-300">Loading tour…</p>
+      )}
 
       {error && (
-        <p className="text-sm text-red-600 mb-4">
+        <p className="text-sm text-red-300 mb-4">
           Error loading tour: {error}
         </p>
       )}
 
       {!loading && !error && !tour && (
-        <p>Tour not found.</p>
+        <p className="text-sm text-slate-300">Tour not found.</p>
       )}
 
       {!loading && !error && tour && (
         <>
           {/* Tour summary + edit status/notes */}
-          <section className="mb-6 border border-gray-200 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-2">
+          <section className="mb-6 border border-white/10 rounded-xl bg-black/40 backdrop-blur-sm p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-2 gap-3">
               <div>
-                <h1 className="text-xl font-bold mb-1">
+                <h1 className="text-xl font-semibold mb-1">
                   {tour.title || 'Untitled tour'}
                 </h1>
-                <div className="text-sm text-gray-700">
+                <div className="text-sm text-slate-300">
                   {tour.client_id ? (
                     <Link
                       href={`/clients/${tour.client_id}`}
-                      className="text-blue-600 hover:underline"
+                      className="text-[#EBD27A] hover:underline"
                     >
                       {tour.client_name || 'Client'}
                     </Link>
@@ -313,13 +316,13 @@ export default function TourDetailPage() {
                     <span>-</span>
                   )}
                   {tour.client_type && (
-                    <span className="text-xs text-gray-500 ml-1">
+                    <span className="text-xs text-slate-400 ml-1">
                       ({tour.client_type})
                     </span>
                   )}
                 </div>
               </div>
-              <div className="text-xs text-gray-500 text-right">
+              <div className="text-xs text-slate-400 text-right">
                 <div>Start: {formatDateTime(tour.start_time)}</div>
                 {tour.end_time && (
                   <div>End: {formatDateTime(tour.end_time)}</div>
@@ -332,20 +335,20 @@ export default function TourDetailPage() {
               className="mt-3 space-y-3 text-sm"
             >
               {saveTourError && (
-                <p className="text-sm text-red-600">
+                <p className="text-sm text-red-300">
                   {saveTourError}
                 </p>
               )}
 
               <div className="flex flex-wrap items-center gap-3">
                 <div>
-                  <label className="block text-xs font-medium mb-1">
+                  <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
                     Status
                   </label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
-                    className="border rounded-md px-3 py-1.5 text-sm"
+                    className="border border-white/15 bg-black/40 rounded-md px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
                   >
                     {STATUS_OPTIONS.map((s) => (
                       <option key={s} value={s}>
@@ -357,13 +360,13 @@ export default function TourDetailPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium mb-1">
+                <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
                   Notes (internal)
                 </label>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
                   rows={3}
                   placeholder="Log what happened on the tour, client reactions, follow-ups, etc."
                 />
@@ -372,7 +375,7 @@ export default function TourDetailPage() {
               <button
                 type="submit"
                 disabled={savingTour}
-                className="inline-flex items-center px-3 py-2 rounded-md bg-black text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-60"
+                className="inline-flex items-center px-4 py-2 rounded-full bg-[#EBD27A] text-slate-900 text-sm font-semibold hover:bg-[#f1db91] disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
               >
                 {savingTour ? 'Saving…' : 'Save Tour'}
               </button>
@@ -380,23 +383,23 @@ export default function TourDetailPage() {
           </section>
 
           {/* Route sheet */}
-          <section className="mb-6 border border-gray-200 rounded-lg p-4">
+          <section className="mb-6 border border-white/10 rounded-xl bg-black/40 backdrop-blur-sm p-4 sm:p-5">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-lg font-semibold">Route Sheet</h2>
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-slate-400">
                 {routeStops.length} stop
                 {routeStops.length === 1 ? '' : 's'}
               </span>
             </div>
 
             {stopsLoading && (
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-slate-300">
                 Building route…
               </p>
             )}
 
             {!stopsLoading && routeStops.length === 0 && (
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-slate-300">
                 No stops found for this tour.
               </p>
             )}
@@ -412,20 +415,20 @@ export default function TourDetailPage() {
                     <li key={stop.id} className="pl-1">
                       {stop.property ? (
                         <div>
-                          <div className="font-medium">
+                          <div className="font-medium text-slate-100">
                             Stop {n}: {stop.property.address}
                           </div>
-                          <div className="text-xs text-gray-500">
+                          <div className="text-xs text-slate-400">
                             {stop.property.city}, {stop.property.state}{' '}
                             • {stop.property.property_type || '-'} •{' '}
                             {formatPrice(stop.property.list_price)}
                           </div>
-                          <div className="text-[11px] text-gray-500">
+                          <div className="text-[11px] text-slate-500">
                             Stage: {stop.property.pipeline_stage}
                           </div>
                         </div>
                       ) : (
-                        <span className="text-gray-400">
+                        <span className="text-slate-500">
                           (missing property)
                         </span>
                       )}
@@ -437,25 +440,25 @@ export default function TourDetailPage() {
           </section>
 
           {/* Stops table */}
-          <section className="mb-6 border border-gray-200 rounded-lg p-4">
+          <section className="mb-6 border border-white/10 rounded-xl bg-black/40 backdrop-blur-sm p-4 sm:p-5">
             <h2 className="text-lg font-semibold mb-3">
               Stops on this Tour
             </h2>
 
             {stopsError && (
-              <p className="text-sm text-red-600 mb-2">
+              <p className="text-sm text-red-300 mb-2">
                 Error loading stops: {stopsError}
               </p>
             )}
 
             {stopsLoading && (
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-slate-300">
                 Loading stops…
               </p>
             )}
 
             {!stopsLoading && stops.length === 0 && (
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-slate-300">
                 No stops found. (They should have been created when you
                 created the tour.)
               </p>
@@ -463,20 +466,22 @@ export default function TourDetailPage() {
 
             {!stopsLoading && stops.length > 0 && (
               <div className="overflow-x-auto">
-                <table className="min-w-full border border-gray-200 text-xs sm:text-sm">
-                  <thead className="bg-gray-50">
+                <table className="min-w-full border border-white/10 text-xs sm:text-sm bg-black/30">
+                  <thead className="bg-white/5">
                     <tr>
-                      <th className="border px-2 py-1 text-left">#</th>
-                      <th className="border px-2 py-1 text-left">
+                      <th className="border border-white/10 px-2 py-1 text-left text-slate-300">
+                        #
+                      </th>
+                      <th className="border border-white/10 px-2 py-1 text-left text-slate-300">
                         Property
                       </th>
-                      <th className="border px-2 py-1 text-left">
+                      <th className="border border-white/10 px-2 py-1 text-left text-slate-300">
                         Feedback
                       </th>
-                      <th className="border px-2 py-1 text-left">
+                      <th className="border border-white/10 px-2 py-1 text-left text-slate-300">
                         Rating
                       </th>
-                      <th className="border px-2 py-1 text-right">
+                      <th className="border border-white/10 px-2 py-1 text-right text-slate-300">
                         Save
                       </th>
                     </tr>
@@ -484,10 +489,10 @@ export default function TourDetailPage() {
                   <tbody>
                     {stops.map((stop) => (
                       <tr key={stop.id} className="align-top">
-                        <td className="border px-2 py-1 w-[50px]">
+                        <td className="border border-white/10 px-2 py-1 w-[60px]">
                           <input
                             type="number"
-                            className="w-full border rounded-md px-1 py-0.5 text-xs"
+                            className="w-full border border-white/20 bg-black/40 rounded-md px-1 py-0.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
                             value={
                               stop.stop_order != null
                                 ? String(stop.stop_order)
@@ -497,39 +502,39 @@ export default function TourDetailPage() {
                               updateStopField(
                                 stop.id,
                                 'stop_order',
-                                e.target.value
+                                e.target.value,
                               )
                             }
                           />
                         </td>
-                        <td className="border px-2 py-1 min-w-[180px]">
+                        <td className="border border-white/10 px-2 py-1 min-w-[200px]">
                           {stop.property ? (
                             <>
                               <Link
                                 href={`/properties/${stop.property.id}`}
-                                className="text-blue-600 hover:underline"
+                                className="text-[#EBD27A] hover:underline"
                               >
                                 {stop.property.address}
                               </Link>
-                              <div className="text-[11px] text-gray-500">
+                              <div className="text-[11px] text-slate-400">
                                 {stop.property.city},{' '}
                                 {stop.property.state} •{' '}
                                 {stop.property.property_type || '-'} •{' '}
                                 {formatPrice(stop.property.list_price)}
                               </div>
-                              <div className="text-[11px] text-gray-500">
+                              <div className="text-[11px] text-slate-500">
                                 Stage: {stop.property.pipeline_stage}
                               </div>
                             </>
                           ) : (
-                            <span className="text-gray-400">
+                            <span className="text-slate-500">
                               (missing property)
                             </span>
                           )}
                         </td>
-                        <td className="border px-2 py-1">
+                        <td className="border border-white/10 px-2 py-1">
                           <textarea
-                            className="w-full border rounded-md px-2 py-1 text-xs"
+                            className="w-full border border-white/20 bg-black/40 rounded-md px-2 py-1 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
                             rows={3}
                             placeholder="Client feedback for this stop"
                             value={stop.client_feedback || ''}
@@ -537,17 +542,17 @@ export default function TourDetailPage() {
                               updateStopField(
                                 stop.id,
                                 'client_feedback',
-                                e.target.value
+                                e.target.value,
                               )
                             }
                           />
                         </td>
-                        <td className="border px-2 py-1 w-[80px]">
+                        <td className="border border-white/10 px-2 py-1 w-[90px]">
                           <input
                             type="number"
                             min={1}
                             max={5}
-                            className="w-full border rounded-md px-2 py-1 text-xs"
+                            className="w-full border border-white/20 bg-black/40 rounded-md px-2 py-1 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
                             placeholder="1–5"
                             value={
                               stop.client_rating != null
@@ -558,17 +563,17 @@ export default function TourDetailPage() {
                               updateStopField(
                                 stop.id,
                                 'client_rating',
-                                e.target.value
+                                e.target.value,
                               )
                             }
                           />
                         </td>
-                        <td className="border px-2 py-1 text-right align-top">
+                        <td className="border border-white/10 px-2 py-1 text-right align-top">
                           <button
                             type="button"
                             onClick={() => handleSaveStop(stop.id)}
                             disabled={savingStopId === stop.id}
-                            className="inline-flex items-center px-2 py-1 rounded-md bg-black text-white text-xs font-medium hover:bg-gray-800 disabled:opacity-60"
+                            className="inline-flex items-center px-3 py-1.5 rounded-full bg-[#EBD27A] text-slate-900 text-xs font-semibold hover:bg-[#f1db91] disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
                           >
                             {savingStopId === stop.id
                               ? 'Saving…'
@@ -581,7 +586,7 @@ export default function TourDetailPage() {
                 </table>
 
                 {saveStopError && (
-                  <p className="text-xs text-red-600 mt-2">
+                  <p className="text-xs text-red-300 mt-2">
                     {saveStopError}
                   </p>
                 )}

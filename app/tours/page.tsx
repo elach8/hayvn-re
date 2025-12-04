@@ -86,72 +86,87 @@ export default function ToursPage() {
   };
 
   return (
-    <main className="min-h-screen max-w-5xl">
-      <header className="flex items-center justify-between mb-4 gap-2">
+    <main className="min-h-screen max-w-5xl mx-auto px-4 sm:px-6 pb-8 text-slate-100">
+      <header className="flex items-center justify-between mb-4 gap-2 pt-6">
         <div>
-          <h1 className="text-2xl font-bold mb-1">Tours</h1>
-          <p className="text-sm text-gray-700">
+          <h1 className="text-2xl font-semibold tracking-tight">Tours</h1>
+          <p className="text-sm text-slate-400">
             See upcoming and past tours across all of your clients.
           </p>
         </div>
         <Link
           href="/tours/new"
-          className="text-xs sm:text-sm rounded-md border border-gray-300 px-3 py-1.5 text-gray-700 hover:bg-gray-50 whitespace-nowrap"
+          className="text-xs sm:text-sm rounded-full border border-[#EBD27A]/70 bg-black/40 px-3 py-1.5 text-[#EBD27A] hover:bg-[#EBD27A] hover:text-slate-900 transition-colors whitespace-nowrap shadow-sm"
         >
           + New tour
         </Link>
       </header>
 
       {loading && (
-        <p className="text-sm text-gray-600">Loading tours…</p>
+        <p className="text-sm text-slate-300">Loading tours…</p>
       )}
 
       {loadError && (
-        <p className="text-sm text-red-600 mb-3">
+        <p className="text-sm text-red-300 mb-3">
           Error loading tours: {loadError}
         </p>
       )}
 
       {!loading && !loadError && tours.length === 0 && (
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-slate-400">
           No tours yet. Use the &quot;New tour&quot; button above to create one.
         </p>
       )}
 
       {!loading && !loadError && tours.length > 0 && (
         <div className="space-y-4 text-sm">
-          <div className="overflow-x-auto">
-            <table className="min-w-full border border-gray-200 text-xs sm:text-sm">
-              <thead className="bg-gray-50">
+          <div className="overflow-x-auto rounded-xl border border-white/10 bg-black/40 backdrop-blur-sm">
+            <table className="min-w-full text-xs sm:text-sm">
+              <thead className="bg-white/5">
                 <tr>
-                  <th className="border px-2 py-1 text-left">Tour</th>
-                  <th className="border px-2 py-1 text-left">Client</th>
-                  <th className="border px-2 py-1 text-left">Status</th>
-                  <th className="border px-2 py-1 text-left">Start</th>
-                  <th className="border px-2 py-1 text-left">End</th>
+                  <th className="border-b border-white/10 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-300">
+                    Tour
+                  </th>
+                  <th className="border-b border-white/10 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-300">
+                    Client
+                  </th>
+                  <th className="border-b border-white/10 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-300">
+                    Status
+                  </th>
+                  <th className="border-b border-white/10 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-300">
+                    Start
+                  </th>
+                  <th className="border-b border-white/10 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-300">
+                    End
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {tours.map((t) => (
-                  <tr key={t.id} className="hover:bg-gray-50">
-                    <td className="border px-2 py-1">
+                  <tr
+                    key={t.id}
+                    className="hover:bg-white/5 transition-colors"
+                  >
+                    <td className="border-b border-white/5 px-3 py-2">
                       <Link
                         href={`/tours/${t.id}`}
-                        className="text-blue-600 hover:underline"
+                        className="text-[#EBD27A] hover:underline font-medium"
                       >
                         {t.title || 'Untitled tour'}
                       </Link>
                     </td>
-                    <td className="border px-2 py-1">
+                    <td className="border-b border-white/5 px-3 py-2 text-slate-200">
                       {t.client ? t.client.name || 'Client' : '—'}
                     </td>
-                    <td className="border px-2 py-1">
-                      {t.status || 'planned'}
+                    <td className="border-b border-white/5 px-3 py-2">
+                      <span className="inline-flex items-center rounded-full bg-white/5 border border-white/10 px-2 py-0.5 text-[11px] text-slate-200">
+                        {t.status || 'planned'}
+                      </span>
                     </td>
-                    <td className="border px-2 py-1">
+                    <td className="border-b border-white/5 px-3 py-2 text-slate-300">
                       {formatDateTime(t.start_time)}
                     </td>
-                    <td className="border px-2 py-1">
+                    <td className="border-b border-white/5 px-3 py-2 text-slate-300">
                       {formatDateTime(t.end_time)}
                     </td>
                   </tr>

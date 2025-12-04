@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import RequireAuth from '../components/RequireAuth';
+import { Card } from '../components/Card';
 
 type AgentRole = 'broker' | 'agent' | 'assistant' | 'admin';
 
@@ -357,57 +358,87 @@ function DashboardPageInner() {
 
   if (loading) {
     return (
-      <main className="p-6">
-        <div className="text-sm text-gray-500">Loading dashboard…</div>
-      </main>
+      <div className="space-y-4">
+        <Card>
+          <div className="text-sm text-slate-300">Loading dashboard…</div>
+        </Card>
+      </div>
     );
   }
 
   if (!agent) {
     return (
-      <main className="p-6">
-        <div className="text-sm text-red-600">
-          {error || 'Unable to load agent'}
-        </div>
-      </main>
+      <div className="space-y-4">
+        <Card>
+          <div className="text-sm text-red-300">
+            {error || 'Unable to load agent'}
+          </div>
+        </Card>
+      </div>
     );
   }
 
   const isBroker = agent.role === 'broker';
 
   return (
-    <main className="p-6 space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">
+    <div className="space-y-6">
+      <header className="space-y-2">
+        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
           {isBroker ? 'Brokerage Dashboard' : 'My Dashboard'}
         </h1>
-        <p className="text-sm text-gray-500">
-          {agent.full_name || agent.email} • {agent.role}
+        <p className="text-sm text-slate-300 flex flex-wrap items-center gap-2">
+          <span>{agent.full_name || agent.email}</span>
+          <span className="inline-flex items-center gap-1 rounded-full bg-white/5 px-2 py-0.5 text-[11px] uppercase tracking-wide text-slate-300 border border-white/10">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            {agent.role}
+          </span>
         </p>
       </header>
 
-      {/* Agent-level cards */}
-      <section>
-        <h2 className="text-lg font-medium mb-3">My pipeline</h2>
+      {/* Agent-level metrics */}
+      <Card className="space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-100 uppercase tracking-wide">
+            My Pipeline
+          </h2>
+          <p className="text-[11px] text-slate-400">
+            Snapshot of your active business
+          </p>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <DashCard label="Active clients" value={metrics.myActiveClients} />
           <DashCard label="Active buyers" value={metrics.myActiveBuyers} />
           <DashCard label="Active sellers" value={metrics.myActiveSellers} />
           <DashCard label="Pending offers" value={metrics.myPendingOffers} />
         </div>
-      </section>
+      </Card>
 
-      <section>
-        <h2 className="text-lg font-medium mb-3">Today</h2>
+      {/* Today section */}
+      <Card className="space-y-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-100 uppercase tracking-wide">
+            Today
+          </h2>
+          <p className="text-[11px] text-slate-400">
+            What matters for the next 24 hours
+          </p>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <DashCard label="Tours today" value={metrics.myToursToday} />
         </div>
-      </section>
+      </Card>
 
       {/* Broker-only section */}
       {isBroker && agent.brokerage_id && (
-        <section>
-          <h2 className="text-lg font-medium mb-3">Brokerage overview</h2>
+        <Card className="space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-100 uppercase tracking-wide">
+              Brokerage Overview
+            </h2>
+            <p className="text-[11px] text-slate-400">
+              High-level view across your team
+            </p>
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <DashCard
               label="Active clients (brokerage)"
@@ -426,23 +457,24 @@ function DashboardPageInner() {
               value={metrics.brokerageUnderContract}
             />
           </div>
-        </section>
+        </Card>
       )}
-    </main>
-  );
-}
-
-// Simple stat card
-function DashCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-xl border border-gray-200 p-4 flex flex-col gap-1">
-      <span className="text-xs uppercase tracking-wide text-gray-500">
-        {label}
-      </span>
-      <span className="text-xl font-semibold">{value}</span>
     </div>
   );
 }
+
+// Simple stat card (styled to match Modern Luxury theme)
+function DashCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-3 sm:px-4 sm:py-4 flex flex-col gap-1">
+      <span className="text-[11px] uppercase tracking-wide text-slate-400">
+        {label}
+      </span>
+      <span className="text-2xl font-semibold text-white">{value}</span>
+    </div>
+  );
+}
+
 
 
 

@@ -68,82 +68,133 @@ export default function PropertiesPage() {
   };
 
   return (
-    <main className="min-h-screen max-w-5xl">
-      <header className="flex items-center justify-between mb-4 gap-2">
+    <main className="min-h-screen max-w-5xl text-slate-100">
+      {/* Header */}
+      <header className="flex items-center justify-between mb-5 gap-3">
         <div>
-          <h1 className="text-2xl font-bold mb-1">Properties</h1>
-          <p className="text-sm text-gray-700">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
+            Properties
+          </h1>
+          <p className="text-sm text-slate-300 mt-1 max-w-xl">
             Manage the homes you&apos;re tracking across your clients and pipeline.
+            MLS data will plug into this grid later.
           </p>
         </div>
         <Link
           href="/properties/new"
-          className="text-xs sm:text-sm rounded-md border border-gray-300 px-3 py-1.5 text-gray-700 hover:bg-gray-50 whitespace-nowrap"
+          className="inline-flex items-center rounded-md border border-white/20 bg-white/5 px-3 py-1.5 text-xs sm:text-sm font-medium text-slate-50 hover:bg-white/10 whitespace-nowrap"
         >
           + New property
         </Link>
       </header>
 
+      {/* States */}
       {loading && (
-        <p className="text-sm text-gray-600">Loading properties…</p>
+        <div className="rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-300">
+          Loading properties…
+        </div>
       )}
 
       {loadError && (
-        <p className="text-sm text-red-600 mb-3">
+        <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100 mb-3">
           Error loading properties: {loadError}
-        </p>
+        </div>
       )}
 
       {!loading && !loadError && properties.length === 0 && (
-        <p className="text-sm text-gray-600">
-          No properties yet. Use the &quot;New property&quot; button above to add one.
-        </p>
+        <div className="rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-300">
+          No properties yet. Use the <span className="font-semibold">New property</span>{' '}
+          button above to add one.
+        </div>
       )}
 
+      {/* Table */}
       {!loading && !loadError && properties.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="min-w-full border border-gray-200 text-xs sm:text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="border px-2 py-1 text-left">Address</th>
-                <th className="border px-2 py-1 text-left">Type</th>
-                <th className="border px-2 py-1 text-left">Stage</th>
-                <th className="border px-2 py-1 text-right">List price</th>
-                <th className="border px-2 py-1 text-left">Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {properties.map((p) => (
-                <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="border px-2 py-1">
-                    <Link
-                      href={`/properties/${p.id}`}
-                      className="text-blue-600 hover:underline"
-                    >
-                      {p.address}
-                    </Link>
-                    <div className="text-[11px] text-gray-500">
-                      {p.city || ''}
-                      {p.state ? `, ${p.state}` : ''}
-                    </div>
-                  </td>
-                  <td className="border px-2 py-1">
-                    {p.property_type || '—'}
-                  </td>
-                  <td className="border px-2 py-1">
-                    {p.pipeline_stage || '—'}
-                  </td>
-                  <td className="border px-2 py-1 text-right">
-                    {formatPrice(p.list_price)}
-                  </td>
-                  <td className="border px-2 py-1">
-                    {formatDate(p.created_at)}
-                  </td>
+        <section className="rounded-xl border border-white/10 bg-black/40 p-3 sm:p-4">
+          <div className="flex items-center justify-between mb-3 text-xs text-slate-400">
+            <span>
+              Showing <span className="font-semibold text-slate-100">{properties.length}</span>{' '}
+              tracked properties
+            </span>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-white/10 bg-black/40">
+            <table className="min-w-full text-xs sm:text-sm">
+              <thead className="bg-white/5 text-slate-300">
+                <tr>
+                  <th className="border-b border-white/10 px-3 py-2 text-left font-medium">
+                    Address
+                  </th>
+                  <th className="border-b border-white/10 px-3 py-2 text-left font-medium">
+                    Type
+                  </th>
+                  <th className="border-b border-white/10 px-3 py-2 text-left font-medium">
+                    Stage
+                  </th>
+                  <th className="border-b border-white/10 px-3 py-2 text-right font-medium">
+                    List price
+                  </th>
+                  <th className="border-b border-white/10 px-3 py-2 text-left font-medium">
+                    Created
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {properties.map((p) => (
+                  <tr
+                    key={p.id}
+                    className="hover:bg-white/5 text-slate-100"
+                  >
+                    <td className="border-b border-white/5 px-3 py-2 align-top">
+                      <Link
+                        href={`/properties/${p.id}`}
+                        className="text-[#EBD27A] hover:underline font-medium"
+                      >
+                        {p.address}
+                      </Link>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        {p.city || ''}
+                        {p.state ? `, ${p.state}` : ''}
+                      </div>
+                    </td>
+
+                    <td className="border-b border-white/5 px-3 py-2 align-top">
+                      {p.property_type ? (
+                        <span className="inline-flex items-center rounded-full bg-white/5 px-2 py-0.5 text-[11px] capitalize text-slate-100">
+                          {p.property_type}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-slate-500">—</span>
+                      )}
+                    </td>
+
+                    <td className="border-b border-white/5 px-3 py-2 align-top">
+                      {p.pipeline_stage ? (
+                        <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-200 capitalize">
+                          {p.pipeline_stage}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-slate-500">—</span>
+                      )}
+                    </td>
+
+                    <td className="border-b border-white/5 px-3 py-2 text-right align-top">
+                      <span className="font-medium">
+                        {formatPrice(p.list_price)}
+                      </span>
+                    </td>
+
+                    <td className="border-b border-white/5 px-3 py-2 align-top text-slate-300">
+                      <span className="text-[11px] sm:text-xs">
+                        {formatDate(p.created_at)}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
     </main>
   );

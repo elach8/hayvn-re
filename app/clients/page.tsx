@@ -1,8 +1,11 @@
+// /app/clients/page.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { Card } from '../components/Card';
+import { Button } from '../components/Button';
 
 type Client = {
   id: string;
@@ -115,9 +118,7 @@ export default function ClientsPage() {
   const handleDelete = async (client: Client) => {
     if (
       typeof window !== 'undefined' &&
-      !window.confirm(
-        `Delete client "${client.name}"? This cannot be undone.`
-      )
+      !window.confirm(`Delete client "${client.name}"? This cannot be undone.`)
     ) {
       return;
     }
@@ -125,10 +126,7 @@ export default function ClientsPage() {
     setDeleteError(null);
     setDeletingId(client.id);
 
-    const { error } = await supabase
-      .from('clients')
-      .delete()
-      .eq('id', client.id);
+    const { error } = await supabase.from('clients').delete().eq('id', client.id);
 
     if (error) {
       console.error('Error deleting client:', error);
@@ -142,170 +140,225 @@ export default function ClientsPage() {
   };
 
   return (
-    <main className="min-h-screen max-w-4xl">
+    <div className="space-y-6 max-w-5xl">
       {/* Header */}
-      <header className="flex items-center justify-between mb-4 gap-2">
+      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Clients</h1>
-          <p className="text-sm text-gray-700">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+            Clients
+          </h1>
+          <p className="text-sm text-slate-300">
             Track buyers, sellers, and past clients in one place.
           </p>
         </div>
 
-        <Link
-          href="/clients/new"
-          className="inline-flex items-center px-3 py-2 rounded-md bg-black text-white text-sm font-medium hover:bg-gray-800"
-        >
-          + Add client
+        <Link href="/clients/new">
+          <Button className="w-full sm:w-auto">+ Add client</Button>
         </Link>
       </header>
 
       {/* Filters */}
-      <section className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-2 text-xs">
-          <button
-            type="button"
-            onClick={() => setStageFilter('all')}
-            className={`px-3 py-1 rounded-full border ${
-              stageFilter === 'all'
-                ? 'bg-black text-white border-black'
-                : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-            }`}
-          >
-            All ({stageCounts.all ?? 0})
-          </button>
-          {STAGES.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setStageFilter(s)}
-              className={`px-3 py-1 rounded-full border capitalize ${
-                stageFilter === s
-                  ? 'bg-black text-white border-black'
-                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-              }`}
-            >
-              {s.replace('_', ' ')} ({stageCounts[s] ?? 0})
-            </button>
-          ))}
+      <Card className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex flex-wrap gap-2 text-[11px]">
+            <FilterPill
+              label={`All (${stageCounts.all ?? 0})`}
+              active={stageFilter === 'all'}
+              onClick={() => setStageFilter('all')}
+            />
+            {STAGES.map((s) => (
+              <FilterPill
+                key={s}
+                label={`${s.replace('_', ' ')} (${stageCounts[s] ?? 0})`}
+                active={stageFilter === s}
+                onClick={() => setStageFilter(s)}
+              />
+            ))}
+          </div>
+
+          <div className="w-full sm:w-64">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+              placeholder="Search by name, email, phone…"
+            />
+          </div>
         </div>
 
-        <div className="w-full sm:w-64">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full border rounded-md px-3 py-2 text-sm"
-            placeholder="Search by name, email, phone…"
-          />
-        </div>
-      </section>
+        <p className="text-[11px] text-slate-400">
+          Filters apply instantly. Use this as your primary client list instead
+          of spreadsheet hell.
+        </p>
+      </Card>
 
       {/* Errors / loading */}
       {error && (
-        <p className="text-sm text-red-600 mb-2">
-          Error loading clients: {error}
-        </p>
+        <Card>
+          <p className="text-sm text-red-300">
+            Error loading clients: {error}
+          </p>
+        </Card>
       )}
 
       {deleteError && (
-        <p className="text-sm text-red-600 mb-2">
-          Error deleting client: {deleteError}
-        </p>
+        <Card>
+          <p className="text-sm text-red-300">
+            Error deleting client: {deleteError}
+          </p>
+        </Card>
       )}
 
-      {loading && <p className="text-sm text-gray-600">Loading clients…</p>}
+      {loading && (
+        <Card>
+          <p className="text-sm text-slate-300">Loading clients…</p>
+        </Card>
+      )}
 
+      {/* Empty state */}
       {!loading && !error && filteredClients.length === 0 && (
-        <p className="text-sm text-gray-600">
-          No clients yet. Click <span className="font-semibold">Add client</span>{' '}
-          to create your first buyer or seller.
-        </p>
+        <Card>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <p className="text-sm text-slate-300">
+              No clients yet. Click{' '}
+              <span className="font-semibold">Add client</span> to create your
+              first buyer or seller.
+            </p>
+            <Link href="/clients/new">
+              <Button variant="secondary" className="w-full sm:w-auto">
+                + Add client
+              </Button>
+            </Link>
+          </div>
+        </Card>
       )}
 
       {/* Clients table */}
       {!loading && !error && filteredClients.length > 0 && (
-        <div className="overflow-x-auto border border-gray-200 rounded-lg">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-              <tr>
-                <th className="px-3 py-2 text-left border-b">Client</th>
-                <th className="px-3 py-2 text-left border-b">Type</th>
-                <th className="px-3 py-2 text-left border-b">Stage</th>
-                <th className="px-3 py-2 text-left border-b">Budget</th>
-                <th className="px-3 py-2 text-left border-b hidden md:table-cell">
-                  Preferred locations
-                </th>
-                <th className="px-3 py-2 text-right border-b">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredClients.map((c) => (
-                <tr key={c.id} className="hover:bg-gray-50">
-                  <td className="px-3 py-2 border-b align-top">
-                    <Link
-                      href={`/clients/${c.id}`}
-                      className="font-medium text-blue-600 hover:underline"
-                    >
-                      {c.name}
-                    </Link>
-                    <div className="text-xs text-gray-500 mt-0.5 space-y-0.5">
-                      {c.phone && <div>📞 {c.phone}</div>}
-                      {c.email && <div>✉️ {c.email}</div>}
-                    </div>
-                  </td>
-
-                  <td className="px-3 py-2 border-b align-top">
-                    <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs capitalize text-gray-700">
-                      {c.client_type || '—'}
-                    </span>
-                  </td>
-
-                  <td className="px-3 py-2 border-b align-top">
-                    <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs capitalize text-gray-700">
-                      {(c.stage || 'lead').replace('_', ' ')}
-                    </span>
-                  </td>
-
-                  <td className="px-3 py-2 border-b align-top">
-                    {formatBudget(c.budget_min, c.budget_max)}
-                  </td>
-
-                  <td className="px-3 py-2 border-b align-top hidden md:table-cell">
-                    {c.preferred_locations ? (
-                      <span className="text-xs text-gray-700">
-                        {c.preferred_locations}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-gray-400">—</span>
-                    )}
-                  </td>
-
-                  <td className="px-3 py-2 border-b align-top">
-                    <div className="flex justify-end gap-2">
+        <Card className="p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-white/5 text-xs uppercase text-slate-300">
+                <tr>
+                  <th className="px-3 py-2 text-left border-b border-white/10">
+                    Client
+                  </th>
+                  <th className="px-3 py-2 text-left border-b border-white/10">
+                    Type
+                  </th>
+                  <th className="px-3 py-2 text-left border-b border-white/10">
+                    Stage
+                  </th>
+                  <th className="px-3 py-2 text-left border-b border-white/10">
+                    Budget
+                  </th>
+                  <th className="px-3 py-2 text-left border-b border-white/10 hidden md:table-cell">
+                    Preferred locations
+                  </th>
+                  <th className="px-3 py-2 text-right border-b border-white/10">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredClients.map((c) => (
+                  <tr
+                    key={c.id}
+                    className="hover:bg-white/5 transition-colors text-slate-100"
+                  >
+                    <td className="px-3 py-2 border-b border-white/5 align-top">
                       <Link
                         href={`/clients/${c.id}`}
-                        className="text-xs text-blue-600 hover:underline"
+                        className="font-medium text-[#EBD27A] hover:underline"
                       >
-                        View
+                        {c.name}
                       </Link>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(c)}
-                        disabled={deletingId === c.id}
-                        className="text-xs text-red-600 hover:underline disabled:opacity-50"
-                      >
-                        {deletingId === c.id ? 'Deleting…' : 'Delete'}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                      <div className="text-xs text-slate-400 mt-0.5 space-y-0.5">
+                        {c.phone && <div>📞 {c.phone}</div>}
+                        {c.email && <div>✉️ {c.email}</div>}
+                      </div>
+                    </td>
+
+                    <td className="px-3 py-2 border-b border-white/5 align-top">
+                      <span className="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-[11px] capitalize text-slate-100 border border-white/15">
+                        {c.client_type || '—'}
+                      </span>
+                    </td>
+
+                    <td className="px-3 py-2 border-b border-white/5 align-top">
+                      <span className="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-[11px] capitalize text-slate-100 border border-white/15">
+                        {(c.stage || 'lead').replace('_', ' ')}
+                      </span>
+                    </td>
+
+                    <td className="px-3 py-2 border-b border-white/5 align-top">
+                      <span className="text-sm text-slate-100">
+                        {formatBudget(c.budget_min, c.budget_max)}
+                      </span>
+                    </td>
+
+                    <td className="px-3 py-2 border-b border-white/5 align-top hidden md:table-cell">
+                      {c.preferred_locations ? (
+                        <span className="text-xs text-slate-200">
+                          {c.preferred_locations}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-500">—</span>
+                      )}
+                    </td>
+
+                    <td className="px-3 py-2 border-b border-white/5 align-top">
+                      <div className="flex justify-end gap-2">
+                        <Link
+                          href={`/clients/${c.id}`}
+                          className="text-xs text-[#EBD27A] hover:underline"
+                        >
+                          View
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(c)}
+                          disabled={deletingId === c.id}
+                          className="text-xs text-red-300 hover:text-red-200 hover:underline disabled:opacity-50"
+                        >
+                          {deletingId === c.id ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
-    </main>
+    </div>
+  );
+}
+
+function FilterPill({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'px-3 py-1 rounded-full border text-xs transition whitespace-nowrap',
+        active
+          ? 'bg-white/20 text-white border-white/40 shadow-sm'
+          : 'bg-black/30 text-slate-200 border-white/15 hover:bg-white/10',
+      ].join(' ')}
+    >
+      {label}
+    </button>
   );
 }
 

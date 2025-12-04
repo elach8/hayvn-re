@@ -1,3 +1,4 @@
+// app/offers/new/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -28,13 +29,7 @@ const STATUS_OPTIONS = [
   'withdrawn',
 ];
 
-const FINANCING_OPTIONS = [
-  'cash',
-  'conventional',
-  'fha',
-  'va',
-  'other',
-];
+const FINANCING_OPTIONS = ['cash', 'conventional', 'fha', 'va', 'other'];
 
 export default function NewOfferPage() {
   const router = useRouter();
@@ -54,7 +49,7 @@ export default function NewOfferPage() {
   const [downPayment, setDownPayment] = useState('');
   const [financingType, setFinancingType] = useState('conventional');
   const [contingencies, setContingencies] = useState(
-    'inspection, appraisal, loan'
+    'inspection, appraisal, loan',
   );
   const [closeDate, setCloseDate] = useState(''); // yyyy-mm-dd
   const [expiration, setExpiration] = useState(''); // datetime-local
@@ -97,7 +92,7 @@ export default function NewOfferPage() {
           (prev) =>
             prev ||
             propertiesRes.error?.message ||
-            'Error loading properties'
+            'Error loading properties',
         );
       } else {
         setProperties((propertiesRes.data || []) as Property[]);
@@ -187,52 +182,50 @@ export default function NewOfferPage() {
   };
 
   return (
-    <main className="min-h-screen max-w-3xl">
-      <header className="flex items-center justify-between mb-3 gap-2">
+    <main className="min-h-screen max-w-3xl mx-auto px-4 sm:px-6 pb-8 text-slate-100">
+      <header className="flex items-center justify-between mb-4 gap-2 pt-6">
         <div>
-          <h1 className="text-2xl font-bold mb-1">New Offer</h1>
-          <p className="text-sm text-gray-700">
+          <h1 className="text-2xl font-semibold mb-1">New Offer</h1>
+          <p className="text-sm text-slate-300">
             Create an offer from a client on a property.
           </p>
         </div>
         <Link
           href="/offers"
-          className="text-sm text-gray-600 hover:underline"
+          className="text-sm text-slate-300 hover:text-white hover:underline"
         >
           ← Back to Offers
         </Link>
       </header>
 
       {loadingLookups && (
-        <p className="text-sm text-gray-600 mb-4">
+        <p className="text-sm text-slate-300 mb-4">
           Loading clients and properties…
         </p>
       )}
 
       {lookupError && (
-        <p className="text-sm text-red-600 mb-4">
-          {lookupError}
-        </p>
+        <p className="text-sm text-red-300 mb-4">{lookupError}</p>
       )}
 
       <form
         onSubmit={handleSubmit}
-        className="space-y-4 border border-gray-200 rounded-lg p-4"
+        className="space-y-4 border border-white/10 rounded-xl bg-black/40 backdrop-blur-sm p-4 sm:p-5"
       >
         {saveError && (
-          <p className="text-sm text-red-600">{saveError}</p>
+          <p className="text-sm text-red-300 mb-1">{saveError}</p>
         )}
 
         {/* Property + Client */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
               Property *
             </label>
             <select
               value={propertyId}
               onChange={(e) => setPropertyId(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
             >
               <option value="">Select property…</option>
               {properties.map((p) => (
@@ -242,20 +235,20 @@ export default function NewOfferPage() {
               ))}
             </select>
             {propertyId && (
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-slate-400 mt-1">
                 List price: {formatSuggestedPrice() || '-'}
               </p>
             )}
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
               Client *
             </label>
             <select
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
             >
               <option value="">Select client…</option>
               {clients.map((c) => (
@@ -271,7 +264,7 @@ export default function NewOfferPage() {
         {/* Side + status */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
               Side
             </label>
             <select
@@ -279,7 +272,7 @@ export default function NewOfferPage() {
               onChange={(e) =>
                 setSide(e.target.value as 'buy' | 'sell')
               }
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
             >
               <option value="buy">buy</option>
               <option value="sell">sell</option>
@@ -287,13 +280,13 @@ export default function NewOfferPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
               Status
             </label>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
             >
               {STATUS_OPTIONS.map((s) => (
                 <option key={s} value={s}>
@@ -304,14 +297,14 @@ export default function NewOfferPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
               Status reason (optional)
             </label>
             <input
               type="text"
               value={statusReason}
               onChange={(e) => setStatusReason(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
               placeholder="e.g. lost to higher price"
             />
           </div>
@@ -320,7 +313,7 @@ export default function NewOfferPage() {
         {/* Money fields */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
               Offer price *
             </label>
             <input
@@ -328,13 +321,13 @@ export default function NewOfferPage() {
               inputMode="decimal"
               value={offerPrice}
               onChange={(e) => setOfferPrice(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
               placeholder="e.g. 850000"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
               Earnest money
             </label>
             <input
@@ -342,13 +335,13 @@ export default function NewOfferPage() {
               inputMode="decimal"
               value={earnestMoney}
               onChange={(e) => setEarnestMoney(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
               placeholder="e.g. 25000"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
               Down payment
             </label>
             <input
@@ -356,7 +349,7 @@ export default function NewOfferPage() {
               inputMode="decimal"
               value={downPayment}
               onChange={(e) => setDownPayment(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
               placeholder="e.g. 170000"
             />
           </div>
@@ -365,13 +358,13 @@ export default function NewOfferPage() {
         {/* Terms */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
               Financing type
             </label>
             <select
               value={financingType}
               onChange={(e) => setFinancingType(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
             >
               {FINANCING_OPTIONS.map((f) => (
                 <option key={f} value={f}>
@@ -382,50 +375,50 @@ export default function NewOfferPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
               Close date
             </label>
             <input
               type="date"
               value={closeDate}
               onChange={(e) => setCloseDate(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">
+            <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
               Expiration
             </label>
             <input
               type="datetime-local"
               value={expiration}
               onChange={(e) => setExpiration(e.target.value)}
-              className="w-full border rounded-md px-3 py-2 text-sm"
+              className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
             />
           </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">
+          <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
             Contingencies
           </label>
           <textarea
             value={contingencies}
             onChange={(e) => setContingencies(e.target.value)}
-            className="w-full border rounded-md px-3 py-2 text-sm"
+            className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
             rows={2}
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">
+          <label className="block text-[11px] font-semibold mb-1 text-slate-300 uppercase tracking-wide">
             Internal notes
           </label>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="w-full border rounded-md px-3 py-2 text-sm"
+            className="w-full border border-white/15 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
             rows={3}
             placeholder="Talking points, reasoning, client constraints…"
           />
@@ -434,7 +427,7 @@ export default function NewOfferPage() {
         <button
           type="submit"
           disabled={saving || loadingLookups}
-          className="inline-flex items-center px-4 py-2 rounded-md bg-black text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-60"
+          className="inline-flex items-center px-4 py-2 rounded-full bg-[#EBD27A] text-slate-900 text-sm font-semibold hover:bg-[#f1db91] disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
         >
           {saving ? 'Creating offer…' : 'Create Offer'}
         </button>

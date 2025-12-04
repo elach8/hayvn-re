@@ -1,3 +1,4 @@
+// app/pipeline/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -43,11 +44,11 @@ type ViewMode = 'mine' | 'brokerage';
 type Stage = { id: string; label: string };
 
 const STAGES: Stage[] = [
-  { id: 'prospect',        label: 'Prospect' },
-  { id: 'active_listing',  label: 'Active listing' },
-  { id: 'offer_in',        label: 'Offer in' },
-  { id: 'under_contract',  label: 'Under contract' },
-  { id: 'closed',          label: 'Closed' },
+  { id: 'prospect',       label: 'Prospect' },
+  { id: 'active_listing', label: 'Active listing' },
+  { id: 'offer_in',       label: 'Offer in' },
+  { id: 'under_contract', label: 'Under contract' },
+  { id: 'closed',         label: 'Closed' },
 ];
 
 function PipelineInner() {
@@ -223,16 +224,16 @@ function PipelineInner() {
 
   if (loading && !agent) {
     return (
-      <main className="p-6">
-        <div className="text-sm text-gray-500">Loading pipeline…</div>
+      <main className="min-h-screen max-w-6xl mx-auto px-6 pt-6 text-slate-100">
+        <div className="text-sm text-slate-300">Loading pipeline…</div>
       </main>
     );
   }
 
   if (!agent) {
     return (
-      <main className="p-6">
-        <div className="text-sm text-red-600">
+      <main className="min-h-screen max-w-6xl mx-auto px-6 pt-6 text-slate-100">
+        <div className="text-sm text-red-300">
           {error || 'Unable to load agent.'}
         </div>
       </main>
@@ -242,22 +243,29 @@ function PipelineInner() {
   const isBroker = agent.role === 'broker';
 
   return (
-    <main className="p-6 space-y-6 max-w-6xl mx-auto">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">Pipeline</h1>
-        <p className="text-sm text-gray-500">
-          {agent.full_name || agent.email} • {agent.role}
-        </p>
+    <main className="min-h-screen max-w-6xl mx-auto px-4 sm:px-6 pb-8 text-slate-100">
+      <header className="space-y-2 pt-6 mb-4">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Pipeline</h1>
+            <p className="text-xs sm:text-sm text-slate-400">
+              {agent.full_name || agent.email} • {agent.role}
+            </p>
+          </div>
+          <span className="hidden sm:inline-flex items-center rounded-full border border-white/10 bg-black/40 px-3 py-1 text-[11px] text-slate-300">
+            Deal flow overview
+          </span>
+        </div>
 
-        <div className="inline-flex rounded-full border border-gray-200 bg-white p-1 text-xs">
+        <div className="inline-flex rounded-full border border-white/10 bg-black/40 p-1 text-xs shadow-sm">
           <button
             type="button"
             onClick={() => handleChangeView('mine')}
             className={
-              'px-3 py-1 rounded-full ' +
+              'px-3 py-1 rounded-full transition-colors ' +
               (viewMode === 'mine'
-                ? 'bg-indigo-600 text-white'
-                : 'text-gray-600 hover:bg-gray-50')
+                ? 'bg-[#EBD27A] text-slate-900 font-semibold shadow-sm'
+                : 'text-slate-300 hover:bg-white/5')
             }
           >
             My pipeline
@@ -267,10 +275,10 @@ function PipelineInner() {
               type="button"
               onClick={() => handleChangeView('brokerage')}
               className={
-                'px-3 py-1 rounded-full ' +
+                'px-3 py-1 rounded-full transition-colors ' +
                 (viewMode === 'brokerage'
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-gray-600 hover:bg-gray-50')
+                  ? 'bg-[#EBD27A] text-slate-900 font-semibold shadow-sm'
+                  : 'text-slate-300 hover:bg_white/5 hover:bg-white/5')
               }
             >
               Brokerage
@@ -279,12 +287,12 @@ function PipelineInner() {
         </div>
 
         {error && (
-          <p className="text-xs text-red-600 mt-1">
+          <p className="text-xs text-red-300 mt-1">
             {error}
           </p>
         )}
         {reloading && (
-          <p className="text-xs text-gray-400 mt-1">Refreshing…</p>
+          <p className="text-xs text-slate-400 mt-1">Refreshing…</p>
         )}
       </header>
 
@@ -297,20 +305,19 @@ function PipelineInner() {
             <div
               key={col.id}
               className={
-                'flex flex-col rounded-xl border bg-white min-h-[200px] max-h-[480px] transition-colors ' +
+                'flex flex-col rounded-xl border bg-black/40 min-h-[220px] max-h-[520px] backdrop-blur-sm transition-colors ' +
                 (isActiveDrop
-                  ? 'border-indigo-400 ring-1 ring-indigo-200'
-                  : 'border-gray-200')
+                  ? 'border-indigo-400 ring-1 ring-indigo-400/40'
+                  : 'border-white/10')
               }
               onDragOver={(e) => {
                 e.preventDefault();
                 setDragOverStage(col.id);
               }}
               onDragLeave={(e) => {
-                // only clear if leaving the column container, not child
-                if ((e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
-                  return;
-                }
+                const current = e.currentTarget as HTMLElement;
+                const related = e.relatedTarget as Node | null;
+                if (related && current.contains(related)) return;
                 setDragOverStage((prev) => (prev === col.id ? null : prev));
               }}
               onDrop={(e) => {
@@ -318,18 +325,18 @@ function PipelineInner() {
                 handleDropOnStage(col.id);
               }}
             >
-              <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between gap-2">
-                <div className="text-xs font-semibold text-gray-700">
+              <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between gap-2 bg-white/5">
+                <div className="text-[11px] font-semibold text-slate-100 uppercase tracking-wide">
                   {col.label}
                 </div>
-                <div className="text-[11px] text-gray-400">
+                <div className="text-[11px] text-slate-400">
                   {col.items.length}
                 </div>
               </div>
 
               {col.items.length === 0 ? (
                 <div className="flex-1 flex items-center justify-center px-3 py-4">
-                  <p className="text-xs text-gray-400 text-center">
+                  <p className="text-xs text-slate-500 text-center">
                     {draggingId && dragOverStage === col.id
                       ? 'Release to move here'
                       : 'No properties in this stage.'}
@@ -377,28 +384,34 @@ function PipelineCard({
 }: PipelineCardProps) {
   const created = new Date(property.created_at);
 
+  const formattedDate = Number.isNaN(created.getTime())
+    ? ''
+    : created.toLocaleDateString();
+
   return (
     <div
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       className={
-        'rounded-lg border bg-gray-50 px-3 py-2 text-xs space-y-1 cursor-move transition-shadow ' +
+        'rounded-lg border bg-black/60 px-3 py-2 text-xs space-y-1 cursor-move transition-all ' +
         (dragging
           ? 'border-indigo-400 shadow-md opacity-80'
-          : 'border-gray-200 hover:shadow-sm')
+          : 'border-white/10 hover:border-white/30 hover:shadow-sm')
       }
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="font-medium text-gray-800 line-clamp-2">
+        <div className="font-medium text-slate-100 line-clamp-2">
           {property.address || 'Unnamed property'}
         </div>
-        <div className="text-[10px] text-gray-400 whitespace-nowrap">
-          {created.toLocaleDateString()}
-        </div>
+        {formattedDate && (
+          <div className="text-[10px] text-slate-500 whitespace-nowrap">
+            {formattedDate}
+          </div>
+        )}
       </div>
 
-      <div className="text-[11px] text-gray-500 flex flex-wrap gap-2">
+      <div className="text-[11px] text-slate-400 flex flex-wrap gap-x-2 gap-y-0.5">
         {property.city && property.state && (
           <span>
             {property.city}, {property.state}
@@ -414,14 +427,14 @@ function PipelineCard({
         )}
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mt-1">
         {property.status && (
-          <span className="inline-flex items-center rounded-full bg-white border border-gray-200 px-2 py-0.5 text-[10px] text-gray-600">
+          <span className="inline-flex items-center rounded-full bg-white/5 border border-white/10 px-2 py-0.5 text-[10px] text-slate-200">
             {property.status.replace('_', ' ')}
           </span>
         )}
         {property.mls_id && (
-          <span className="text-[10px] text-gray-400">
+          <span className="text-[10px] text-slate-500">
             MLS: {property.mls_id}
           </span>
         )}
