@@ -1,73 +1,119 @@
-// app/portal/sign-in/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, FormEvent } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function PortalSignInPage() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [email, setEmail] = useState('');
+  const [status, setStatus] = useState<'idle' | 'loading' | 'sent' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleSignIn = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const handleGoogleSignIn = async () => {
+    setStatus('loading');
+    setErrorMessage(null);
 
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo:
-            typeof window !== 'undefined'
-              ? `${window.location.origin}/portal`
-              : undefined,
-        },
-      });
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo:
+          typeof window !== 'undefined'
+            ? `${window.location.origin}/portal`
+            : undefined,
+      },
+    }).catch(err => {
+      setStatus('error');
+      setErrorMessage(err.message);
+    });
+  };
 
-      if (error) {
-        console.error('Portal sign-in error:', error);
-        setError(error.message || 'Something went wrong signing you in.');
-        setLoading(false);
-      }
-      // On success, Supabase will redirect to Google, then back to /portal
-    } catch (err: any) {
-      console.error('Portal sign-in unexpected error:', err);
-      setError('Something went wrong signing you in.');
-      setLoading(false);
+  const handleEmailSignIn = async (e: FormEvent) => {
+    e.preventDefault();
+    setStatus('loading');
+    setErrorMessage(null);
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo:
+          typeof window !== 'undefined'
+            ? `${window.location.origin}/portal`
+            : undefined,
+      },
+    });
+
+    if (error) {
+      setStatus('error');
+      setErrorMessage(error.message);
+      return;
     }
+
+    setStatus('sent');
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black flex items-center justify-center px-4 text-slate-50">
-      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-black/60 backdrop-blur-sm px-6 py-6 space-y-4 shadow-[0_18px_45px_rgba(0,0,0,0.65)]">
+    <main className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white border border-gray-200 shadow-sm p-6 space-y-5">
+
         <header className="space-y-2 text-center">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-            Hayvn-RE
-          </p>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-50">
-            Client Portal
-          </h1>
-          <p className="text-sm text-slate-300">
-            Sign in to see the homes your agent has shared, tour plans, and
-            offers in one place.
+          <h1 className="text-xl font-semibold">Client Portal</h1>
+          <p className="text-sm text-gray-500">
+            Sign in to view your home search, tours, and offers with your agent.
           </p>
         </header>
 
+        {/* Google Button */}
         <button
           type="button"
-          onClick={handleSignIn}
-          disabled={loading}
-          className="w-full inline-flex items-center justify-center rounded-lg bg-[#EBD27A] text-black text-sm font-medium px-4 py-2.5 hover:bg-[#f3e497] disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          onClick={handleGoogleSignIn}
+          disabled={status === 'loading'}
+          className="w-full inline-flex items-center justify-center rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-60"
         >
-          {loading ? 'Redirecting…' : 'Continue with Google'}
+          Continue with Google
         </button>
 
-        {error && (
-          <p className="text-[11px] text-red-300 text-center">{error}</p>
+        {/* Divider */}
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <div className="flex-1 h-px bg-gray-200" />
+          <span>or</span>
+          <div className="flex-1 h-px bg-gray-200" />
+        </div>
+
+        {/* Magic Link Email */}
+        <form onSubmit={handleEmailSignIn} className="space-y-3">
+          <label className="block text-xs font-medium text-gray-700">
+            Email
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-1 focus:ring-black focus:border-black"
+              placeholder="you@example.com"
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={status === 'loading'}
+            className="w-full rounded-lg bg-black text-white text-sm font-medium px-4 py-2.5 hover:bg-gray-800 disabled:opacity-60"
+          >
+            {status === 'loading' ? 'Sending link…' : 'Send magic link'}
+          </button>
+        </form>
+
+        {/* Messages */}
+        {status === 'sent' && (
+          <p className="text-xs text-green-600 text-center">
+            Check your email for a sign-in link!
+          </p>
         )}
 
-        <p className="text-[11px] text-slate-400 text-center">
-          Use the same email address your agent has on file for you. If you
-          aren&apos;t sure which one that is, check with them first.
+        {status === 'error' && errorMessage && (
+          <p className="text-xs text-red-600 text-center">{errorMessage}</p>
+        )}
+
+        <p className="text-[11px] text-gray-400 text-center">
+          Use the same email your agent has on file.
         </p>
       </div>
     </main>
