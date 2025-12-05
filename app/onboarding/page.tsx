@@ -1,3 +1,4 @@
+// app/onboarding/page.tsx
 'use client';
 
 import { useEffect, useState, FormEvent } from 'react';
@@ -68,7 +69,7 @@ function OnboardingInner() {
 
         if (!existing) {
           const fullName =
-            (user.user_metadata && user.user_metadata.full_name) ||
+            (user.user_metadata && (user.user_metadata as any).full_name) ||
             user.email ||
             'Agent';
 
@@ -199,9 +200,6 @@ function OnboardingInner() {
           .eq('id', agent.id);
 
         if (updateError) throw updateError;
-
-        // In a future step we can show the join code on a settings page
-        // For now, it's stored in brokerages.join_code.
       } else if (mode === 'agent_at_brokerage') {
         // Agent at brokerage → must have a join code
         const trimmedCode = joinCode.trim().toUpperCase();
@@ -244,131 +242,140 @@ function OnboardingInner() {
 
   if (loading) {
     return (
-      <main className="p-6">
-        <div className="text-sm text-gray-500">Loading onboarding…</div>
+      <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 px-4">
+        <div className="rounded-xl border border-white/10 bg-black/60 px-4 py-3 text-sm text-slate-200">
+          Loading onboarding…
+        </div>
       </main>
     );
   }
 
   if (error && !agent) {
     return (
-      <main className="p-6">
-        <div className="text-sm text-red-600">{error}</div>
+      <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 px-4">
+        <div className="rounded-xl border border-red-400/40 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+          {error}
+        </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gray-50">
+    <main className="min-h-screen flex items-center justify-center bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 px-4">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-md rounded-2xl bg-white shadow-sm border border-gray-200 p-6 space-y-5"
+        className="w-full max-w-md rounded-2xl bg-black/70 border border-white/10 shadow-2xl p-6 space-y-6 backdrop-blur"
       >
         <header className="space-y-2">
-          <h1 className="text-xl font-semibold">Welcome to Hayvn-RE</h1>
-          <p className="text-sm text-gray-500">
-            Tell us how you&apos;re using the app so we can set things up
-            correctly.
+          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+            Welcome
+          </p>
+          <h1 className="text-xl font-semibold text-white">
+            Set up your Hayvn-RE workspace
+          </h1>
+          <p className="text-sm text-slate-300">
+            Tell us how you&apos;re using the app so we can configure your
+            brokerage and client tools correctly.
           </p>
         </header>
 
         <section className="space-y-2">
-          <p className="text-xs font-medium text-gray-700">
+          <p className="text-xs font-medium text-slate-200">
             How will you use Hayvn-RE?
           </p>
-          <div className="space-y-2 text-sm">
-            <label className="flex items-center gap-2">
+          <div className="space-y-2 text-sm text-slate-100">
+            <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
                 name="mode"
                 value="solo"
                 checked={mode === 'solo'}
                 onChange={() => setMode('solo')}
+                className="h-4 w-4 accent-[#EBD27A]"
               />
               <span>I&apos;m a solo agent (just me)</span>
             </label>
-            <label className="flex items-center gap-2">
+            <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
                 name="mode"
                 value="broker"
                 checked={mode === 'broker'}
                 onChange={() => setMode('broker')}
+                className="h-4 w-4 accent-[#EBD27A]"
               />
               <span>I run a brokerage or team</span>
             </label>
-            <label className="flex items-center gap-2">
+            <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
                 name="mode"
                 value="agent_at_brokerage"
                 checked={mode === 'agent_at_brokerage'}
                 onChange={() => setMode('agent_at_brokerage')}
+                className="h-4 w-4 accent-[#EBD27A]"
               />
               <span>I&apos;m an agent at a brokerage</span>
             </label>
           </div>
         </section>
 
-        {/* Brokerage name field: used for solo & broker */}
         {(mode === 'solo' || mode === 'broker') && (
           <section className="space-y-2">
-            <label className="block text-xs font-medium text-gray-700">
+            <label className="block text-xs font-medium text-slate-200">
               Brokerage / team name
               <input
                 type="text"
                 value={brokerageName}
                 onChange={(e) => setBrokerageName(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                className="mt-1 block w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
                 placeholder={
                   mode === 'solo'
-                    ? 'e.g. John Smith Real Estate'
-                    : 'e.g. ACME Realty'
+                    ? 'e.g., John Smith Real Estate'
+                    : 'e.g., ACME Realty'
                 }
               />
             </label>
           </section>
         )}
 
-        {/* Join code field: only for agent_at_brokerage */}
         {mode === 'agent_at_brokerage' && (
           <section className="space-y-2">
-            <label className="block text-xs font-medium text-gray-700">
+            <label className="block text-xs font-medium text-slate-200">
               Join code from your broker
               <input
                 type="text"
                 value={joinCode}
                 onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm tracking-[0.2em] uppercase focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="e.g. 7FJ92KQ3"
+                className="mt-1 block w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm tracking-[0.2em] uppercase text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
+                placeholder="e.g., 7FJ92KQ3"
               />
             </label>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-slate-400">
               Your broker can find this join code in their Hayvn-RE settings.
             </p>
           </section>
         )}
 
-        {/* MLS fields only when broker */}
         {mode === 'broker' && (
-          <section className="space-y-2">
-            <label className="block text-xs font-medium text-gray-700">
+          <section className="space-y-3">
+            <label className="block text-xs font-medium text-slate-200">
               MLS (optional)
               <input
                 type="text"
                 value={mlsName}
                 onChange={(e) => setMlsName(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="e.g. CRMLS"
+                className="mt-1 block w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
+                placeholder="e.g., CRMLS"
               />
             </label>
-            <label className="block text-xs font-medium text-gray-700">
+            <label className="block text-xs font-medium text-slate-200">
               MLS office ID (optional)
               <input
                 type="text"
                 value={mlsOfficeId}
                 onChange={(e) => setMlsOfficeId(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                className="mt-1 block w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
                 placeholder="Office ID from your MLS"
               />
             </label>
@@ -376,7 +383,7 @@ function OnboardingInner() {
         )}
 
         {error && (
-          <p className="text-xs text-red-600">
+          <p className="text-xs text-red-300">
             {error}
           </p>
         )}
@@ -384,10 +391,19 @@ function OnboardingInner() {
         <button
           type="submit"
           disabled={saving}
-          className="w-full rounded-xl bg-indigo-600 text-white text-sm font-medium px-3 py-2.5 hover:bg-indigo-700 disabled:opacity-60"
+          className="w-full rounded-xl bg-[#EBD27A] text-slate-950 text-sm font-medium px-3 py-2.5 hover:bg-[#f1df9a] disabled:opacity-60 transition-colors"
         >
           {saving ? 'Saving…' : 'Continue to dashboard'}
         </button>
+
+        {agent && (
+          <p className="text-[11px] text-slate-500 text-center">
+            Signed in as{' '}
+            <span className="font-medium text-slate-200">
+              {agent.full_name || agent.email}
+            </span>
+          </p>
+        )}
       </form>
     </main>
   );
@@ -400,4 +416,5 @@ export default function OnboardingPage() {
     </RequireAuth>
   );
 }
+
 
