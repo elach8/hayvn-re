@@ -1,10 +1,10 @@
 // app/settings/idx/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
+import { useEffect, useState, FormEvent } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import RequireAuth from '../../components/RequireAuth';
+import Link from 'next/link';
 
 type AgentRole = 'broker' | 'agent' | 'assistant' | 'admin';
 
@@ -39,61 +39,81 @@ type IdxConnection = {
   status: IdxStatus | null;
   last_status_at: string | null;
   last_error: string | null;
-  created_at: string | null;
-  updated_at: string | null;
 };
 
-const IDX_STATUSES: IdxStatus[] = ['pending', 'live', 'disabled'];
+type TestResult = {
+  loading: boolean;
+  ok: boolean | null;
+  message: string | null;
+};
 
-function badgeClasses(status: IdxStatus | null | undefined) {
+function statusChip(status: IdxStatus | null) {
+  if (!status) {
+    return (
+      <span className="inline-flex items-center rounded-full border border-slate-600 bg-slate-900/70 px-2.5 py-0.5 text-[11px] text-slate-200">
+        <span className="mr-1 h-1.5 w-1.5 rounded-full bg-slate-400" />
+        Not set
+      </span>
+    );
+  }
+
   if (status === 'live') {
-    return {
-      wrapper:
-        'border-emerald-500/40 bg-emerald-950/40 text-emerald-100',
-      dot: 'bg-emerald-400',
-      label: 'Live',
-    };
+    return (
+      <span className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-950/50 px-2.5 py-0.5 text-[11px] text-emerald-100">
+        <span className="mr-1 h-1.5 w-1.5 rounded-full bg-emerald-400" />
+        Live
+      </span>
+    );
   }
-  if (status === 'disabled') {
-    return {
-      wrapper: 'border-slate-500/40 bg-slate-900/70 text-slate-200',
-      dot: 'bg-slate-400',
-      label: 'Disabled',
-    };
+
+  if (status === 'pending') {
+    return (
+      <span className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-950/50 px-2.5 py-0.5 text-[11px] text-amber-100">
+        <span className="mr-1 h-1.5 w-1.5 rounded-full bg-amber-400" />
+        Pending
+      </span>
+    );
   }
-  // pending or null
-  return {
-    wrapper: 'border-amber-500/40 bg-amber-950/40 text-amber-100',
-    dot: 'bg-amber-400',
-    label: 'Pending',
-  };
+
+  return (
+    <span className="inline-flex items-center rounded-full border border-slate-600 bg-slate-900/70 px-2.5 py-0.5 text-[11px] text-slate-200">
+      <span className="mr-1 h-1.5 w-1.5 rounded-full bg-slate-500" />
+      Disabled
+    </span>
+  );
+}
+
+function formatDateTime(iso: string | null) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString();
 }
 
 function IdxSettingsInner() {
   const [loading, setLoading] = useState(true);
-  const [savingId, setSavingId] = useState<string | 'new' | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
+  const [saving, setSaving] = useState(false);
   const [agent, setAgent] = useState<Agent | null>(null);
   const [brokerage, setBrokerage] = useState<Brokerage | null>(null);
   const [connections, setConnections] = useState<IdxConnection[]>([]);
-  const [creatingNew, setCreatingNew] = useState(false);
-
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, TestResult>>(
+    {}
+  );
+
+  const isBroker = agent?.role === 'broker';
 
   useEffect(() => {
     const load = async () => {
       try {
         setError(null);
         setInfo(null);
-        setLoading(true);
 
         const {
           data: { session },
           error: sessionError,
         } = await supabase.auth.getSession();
-
         if (sessionError) throw sessionError;
         if (!session) {
           setError('Not signed in');
@@ -121,7 +141,6 @@ function IdxSettingsInner() {
         setAgent(typedAgent);
 
         if (!typedAgent.brokerage_id) {
-          setInfo('You are not linked to a brokerage yet.');
           setLoading(false);
           return;
         }
@@ -129,29 +148,23 @@ function IdxSettingsInner() {
         // Load brokerage
         const { data: brokerageRow, error: brokerageError } = await supabase
           .from('brokerages')
-          .select('id, name, mls_name, mls_office_id')
+          .select('*')
           .eq('id', typedAgent.brokerage_id)
           .maybeSingle();
 
         if (brokerageError) throw brokerageError;
-        if (!brokerageRow) {
-          setError('Brokerage not found for this agent.');
-          setLoading(false);
-          return;
-        }
-
         setBrokerage(brokerageRow as Brokerage);
 
-        // Load IDX connections
+        // Load idx connections for this brokerage
         const { data: idxRows, error: idxError } = await supabase
           .from('idx_connections')
           .select('*')
-          .eq('brokerage_id', brokerageRow.id)
-          .order('created_at', { ascending: true });
+          .eq('brokerage_id', typedAgent.brokerage_id)
+          .order('created_at', { ascending: false });
 
         if (idxError) throw idxError;
-
         setConnections((idxRows || []) as IdxConnection[]);
+
         setLoading(false);
       } catch (err: any) {
         console.error('IDX settings load error:', err);
@@ -163,131 +176,130 @@ function IdxSettingsInner() {
     load();
   }, []);
 
-  const handleSaveExisting = async (
-    id: string,
-    e: FormEvent<HTMLFormElement>,
-  ) => {
+  const handleCreateConnection = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!brokerage) return;
+    if (!brokerage || !isBroker) return;
 
-    setSavingId(id);
+    setSaving(true);
     setError(null);
     setInfo(null);
 
     try {
       const formData = new FormData(e.currentTarget);
 
-      const payload = {
-        mls_name: (formData.get('mls_name') || '').toString().trim() || null,
-        connection_label:
-          (formData.get('connection_label') || '').toString().trim() || null,
-        vendor_name:
-          (formData.get('vendor_name') || '').toString().trim() || null,
-        endpoint_url:
-          (formData.get('endpoint_url') || '').toString().trim() || null,
-        username:
-          (formData.get('username') || '').toString().trim() || null,
-        password:
-          (formData.get('password') || '').toString().trim() || null,
-        api_key: (formData.get('api_key') || '').toString().trim() || null,
-        notes: (formData.get('notes') || '').toString().trim() || null,
-        status: (formData.get('status') || '').toString().trim() || 'pending',
-      };
-
-      const { data, error: updateError } = await supabase
-        .from('idx_connections')
-        .update(payload)
-        .eq('id', id)
-        .eq('brokerage_id', brokerage.id)
-        .select()
-        .single();
-
-      if (updateError) throw updateError;
-
-      const updated = data as IdxConnection;
-      setConnections((prev) =>
-        prev.map((c) => (c.id === id ? updated : c)),
-      );
-      setInfo('IDX connection updated.');
-    } catch (err: any) {
-      console.error('Update IDX connection error:', err);
-      setError(err?.message ?? 'Failed to update IDX connection');
-    } finally {
-      setSavingId(null);
-    }
-  };
-
-  const handleCreateNew = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!brokerage) return;
-
-    setSavingId('new');
-    setError(null);
-    setInfo(null);
-
-    try {
-      const formData = new FormData(e.currentTarget);
-
-      const payload = {
-        brokerage_id: brokerage.id,
-        mls_name: (formData.get('mls_name') || '').toString().trim() || null,
-        connection_label:
-          (formData.get('connection_label') || '').toString().trim() || null,
-        vendor_name:
-          (formData.get('vendor_name') || '').toString().trim() || null,
-        endpoint_url:
-          (formData.get('endpoint_url') || '').toString().trim() || null,
-        username:
-          (formData.get('username') || '').toString().trim() || null,
-        password:
-          (formData.get('password') || '').toString().trim() || null,
-        api_key: (formData.get('api_key') || '').toString().trim() || null,
-        notes: (formData.get('notes') || '').toString().trim() || null,
-        status: (formData.get('status') || '').toString().trim() || 'pending',
-      };
+      const connection_label = (formData.get('connection_label') || '')
+        .toString()
+        .trim();
+      const vendor_name = (formData.get('vendor_name') || '')
+        .toString()
+        .trim();
+      const mls_name = (formData.get('mls_name') || '').toString().trim();
+      const endpoint_url = (formData.get('endpoint_url') || '')
+        .toString()
+        .trim();
+      const username = (formData.get('username') || '').toString().trim();
+      const password = (formData.get('password') || '').toString().trim();
+      const api_key = (formData.get('api_key') || '').toString().trim();
+      const notes = (formData.get('notes') || '').toString().trim();
+      const status = (formData.get('status') || 'pending') as IdxStatus;
 
       const { data, error: insertError } = await supabase
         .from('idx_connections')
-        .insert(payload)
-        .select()
-        .single();
+        .insert([
+          {
+            brokerage_id: brokerage.id,
+            connection_label: connection_label || null,
+            vendor_name: vendor_name || null,
+            mls_name: mls_name || brokerage.mls_name || null,
+            endpoint_url: endpoint_url || null,
+            username: username || null,
+            password: password || null,
+            api_key: api_key || null,
+            notes: notes || null,
+            status,
+          },
+        ])
+        .select('*');
 
       if (insertError) throw insertError;
 
-      const created = data as IdxConnection;
-      setConnections((prev) => [...prev, created]);
-      setCreatingNew(false);
+      setConnections((prev) => [
+        ...(data as IdxConnection[]),
+        ...prev,
+      ]);
       setInfo('IDX connection created.');
+      e.currentTarget.reset();
     } catch (err: any) {
-      console.error('Create IDX connection error:', err);
+      console.error('Create idx_connection error:', err);
       setError(err?.message ?? 'Failed to create IDX connection');
     } finally {
-      setSavingId(null);
+      setSaving(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!brokerage) return;
-    setDeletingId(id);
+  const handleTestConnection = async (conn: IdxConnection) => {
+    setTestResults((prev) => ({
+      ...prev,
+      [conn.id]: {
+        loading: true,
+        ok: null,
+        message: null,
+      },
+    }));
     setError(null);
     setInfo(null);
 
     try {
-      const { error: deleteError } = await supabase
-        .from('idx_connections')
-        .delete()
-        .eq('id', id)
-        .eq('brokerage_id', brokerage.id);
+      const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      if (!projectUrl) {
+        throw new Error(
+          'NEXT_PUBLIC_SUPABASE_URL is not set. Add it in your Vercel env.'
+        );
+      }
 
-      if (deleteError) throw deleteError;
+      const url = `${projectUrl}/functions/v1/idx-sync?connection_id=${encodeURIComponent(
+        conn.id
+      )}&dry_run=1`;
 
-      setConnections((prev) => prev.filter((c) => c.id !== id));
-      setInfo('IDX connection deleted.');
+      const res = await fetch(url, {
+        method: 'GET',
+      });
+
+      const json = await res.json();
+      const ok = res.ok && json?.ok !== false;
+
+      setTestResults((prev) => ({
+        ...prev,
+        [conn.id]: {
+          loading: false,
+          ok,
+          message:
+            json?.error ||
+            json?.message ||
+            (ok ? 'IDX sync test succeeded.' : 'IDX sync test reported an error.'),
+        },
+      }));
+
+      if (ok) {
+        setInfo('IDX sync test completed successfully.');
+      } else {
+        setError(
+          json?.error ||
+            json?.message ||
+            'IDX sync test reported an error. Check connection details.'
+        );
+      }
     } catch (err: any) {
-      console.error('Delete IDX connection error:', err);
-      setError(err?.message ?? 'Failed to delete IDX connection');
-    } finally {
-      setDeletingId(null);
+      console.error('IDX sync test error:', err);
+      setTestResults((prev) => ({
+        ...prev,
+        [conn.id]: {
+          loading: false,
+          ok: false,
+          message: err?.message ?? 'IDX sync test failed.',
+        },
+      }));
+      setError(err?.message ?? 'IDX sync test failed.');
     }
   };
 
@@ -315,43 +327,32 @@ function IdxSettingsInner() {
     );
   }
 
-  if (agent.role !== 'broker') {
+  if (!brokerage) {
     return (
       <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
         <div className="max-w-3xl mx-auto px-4 py-10 space-y-4">
-          <header>
+          <header className="space-y-1">
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
-              MLS / IDX Settings
+              MLS / IDX settings
             </h1>
             <p className="text-sm text-slate-300">
               Signed in as{' '}
               <span className="font-medium text-slate-50">
                 {agent.full_name || agent.email}
-              </span>{' '}
-              <span className="text-slate-400">• {agent.role}</span>
+              </span>
             </p>
           </header>
-          <div className="rounded-2xl border border-slate-500/40 bg-slate-950/60 px-4 py-3 text-sm text-slate-200">
-            Only brokers can manage IDX connections for a brokerage. If you
-            think this is incorrect, contact your broker or Hayvn-RE support.
+          <div className="rounded-2xl border border-slate-500/40 bg-black/40 px-4 py-3 text-sm text-slate-200">
+            You&apos;re not currently linked to a brokerage, so there&apos;s no
+            MLS / IDX configuration to manage here. Once you&apos;re attached
+            to a brokerage, your broker can configure IDX access.
           </div>
-        </div>
-      </main>
-    );
-  }
-
-  if (!brokerage) {
-    return (
-      <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
-        <div className="max-w-3xl mx-auto px-4 py-10 space-y-4">
-          <header>
-            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
-              MLS / IDX Settings
-            </h1>
-          </header>
-          <div className="rounded-2xl border border-red-500/40 bg-red-950/40 px-4 py-3 text-sm text-red-100">
-            {error || 'No brokerage found for this broker.'}
-          </div>
+          <Link
+            href="/settings"
+            className="inline-flex items-center rounded-lg bg-slate-100 text-black text-xs font-medium px-3 py-1.5 hover:bg-white"
+          >
+            Back to Settings
+          </Link>
         </div>
       </main>
     );
@@ -359,29 +360,27 @@ function IdxSettingsInner() {
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
-      <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
+      <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         <header className="space-y-1">
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
-            MLS / IDX Settings
-          </h1>
-          <p className="text-sm text-slate-300">
-            Brokerage:{' '}
-            <span className="font-medium text-slate-50">
-              {brokerage.name || '—'}
-            </span>
-            {brokerage.mls_name && (
-              <span className="text-slate-400">
-                {' '}
-                • MLS {brokerage.mls_name}
-              </span>
-            )}
-            {brokerage.mls_office_id && (
-              <span className="text-slate-400">
-                {' '}
-                • Office ID {brokerage.mls_office_id}
-              </span>
-            )}
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+                MLS / IDX settings
+              </h1>
+              <p className="text-sm text-slate-300">
+                Brokerage:{' '}
+                <span className="font-medium text-slate-50">
+                  {brokerage.name || '—'}
+                </span>
+              </p>
+            </div>
+            <Link
+              href="/settings"
+              className="inline-flex items-center rounded-lg border border-slate-600 bg-black/40 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-400"
+            >
+              Back to Settings
+            </Link>
+          </div>
         </header>
 
         {error && (
@@ -396,248 +395,89 @@ function IdxSettingsInner() {
           </div>
         )}
 
-        <section className="rounded-2xl border border-white/10 bg-black/40 p-4 space-y-3">
-          <div className="space-y-1">
+        {/* Summary card */}
+        <section className="rounded-2xl border border-white/10 bg-black/40 p-4 space-y-2">
+          <h2 className="text-sm font-medium text-slate-50">
+            How MLS / IDX works in Hayvn-RE
+          </h2>
+          <p className="text-xs text-slate-300">
+            We don&apos;t host your IDX feed ourselves. Instead, you work with
+            your MLS or an IDX vendor to enable access, then paste the
+            endpoint and credentials here. Hayvn-RE uses that feed to keep your
+            listings, buyer matches, and market radar up to date.
+          </p>
+          <p className="text-[11px] text-slate-400">
+            You can keep using clients, tours, and offers even without IDX. Once
+            a connection is live, we&apos;ll start syncing Active, Pending, and
+            recent Sold listings for your office.
+          </p>
+        </section>
+
+        {/* Only broker can create / edit connections */}
+        {!isBroker && (
+          <section className="rounded-2xl border border-slate-600/60 bg-black/40 p-4 space-y-2">
             <h2 className="text-sm font-medium text-slate-50">
-              IDX Connections
+              Broker-only settings
             </h2>
-            <p className="text-xs text-slate-400">
-              Store the technical details you receive from your MLS or IDX
-              vendor. You can add multiple connections (for example, if you
-              connect different MLSes or a back-office feed).
+            <p className="text-xs text-slate-300">
+              Only the broker-of-record can create or change MLS / IDX
+              connections. If your team needs listing data in Hayvn-RE, share
+              this page with your broker and ask them to configure the feed.
             </p>
-          </div>
+          </section>
+        )}
 
-          {connections.length === 0 && !creatingNew && (
-            <div className="rounded-xl border border-dashed border-slate-600/60 bg-black/40 px-4 py-3 text-xs text-slate-300">
-              No IDX connections yet. When your MLS or vendor sends connection
-              info, click “Add connection” to store it here.
-            </div>
-          )}
+        {/* New connection form (broker only) */}
+        {isBroker && (
+          <section className="rounded-2xl border border-white/10 bg-black/40 p-4 space-y-3">
+            <h2 className="text-sm font-medium text-slate-50">
+              Add IDX connection
+            </h2>
+            <p className="text-xs text-slate-300">
+              Use this if your MLS or vendor gives you a dedicated endpoint and
+              credentials for your office. You can have more than one connection
+              if needed (e.g. multiple MLSes).
+            </p>
 
-          <div className="space-y-4">
-            {connections.map((conn) => {
-              const badge = badgeClasses(conn.status || 'pending');
-              const isSaving = savingId === conn.id;
-              const isDeleting = deletingId === conn.id;
-
-              return (
-                <form
-                  key={conn.id}
-                  onSubmit={(e) => handleSaveExisting(conn.id, e)}
-                  className="rounded-xl border border-white/10 bg-black/60 p-3 space-y-3"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-0.5">
-                      <h3 className="text-xs font-semibold text-slate-100 uppercase tracking-wide">
-                        {conn.connection_label || 'IDX connection'}
-                      </h3>
-                      <p className="text-[11px] text-slate-400">
-                        Created {conn.created_at
-                          ? new Date(conn.created_at).toLocaleString()
-                          : '—'}
-                      </p>
-                    </div>
-                    <span
-                      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium ${badge.wrapper}`}
-                    >
-                      <span
-                        className={`mr-1 h-1.5 w-1.5 rounded-full ${badge.dot}`}
-                      />
-                      {badge.label}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                        Label
-                      </label>
-                      <input
-                        name="connection_label"
-                        defaultValue={conn.connection_label ?? ''}
-                        className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                        placeholder="e.g. Office IDX feed"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                        Vendor
-                      </label>
-                      <input
-                        name="vendor_name"
-                        defaultValue={conn.vendor_name ?? ''}
-                        className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                        placeholder="e.g. CRMLS, IDX Broker"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                        MLS name (override)
-                      </label>
-                      <input
-                        name="mls_name"
-                        defaultValue={conn.mls_name ?? brokerage.mls_name ?? ''}
-                        className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                        placeholder="Optional"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                      Endpoint URL
-                    </label>
-                    <input
-                      name="endpoint_url"
-                      defaultValue={conn.endpoint_url ?? ''}
-                      className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                      placeholder="https://..."
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                        Username
-                      </label>
-                      <input
-                        name="username"
-                        defaultValue={conn.username ?? ''}
-                        className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                        Password
-                      </label>
-                      <input
-                        name="password"
-                        type="password"
-                        defaultValue={conn.password ?? ''}
-                        className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                        API key
-                      </label>
-                      <input
-                        name="api_key"
-                        defaultValue={conn.api_key ?? ''}
-                        className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                      Notes (what this feed is used for)
-                    </label>
-                    <textarea
-                      name="notes"
-                      defaultValue={conn.notes ?? ''}
-                      className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400 resize-none min-h-[70px]"
-                      placeholder="Any special instructions, rate limits, etc."
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <label className="text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                        Status
-                      </label>
-                      <select
-                        name="status"
-                        defaultValue={conn.status || 'pending'}
-                        className="rounded-lg border border-white/15 bg-black/70 px-2 py-1 text-[11px] text-slate-100 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                      >
-                        {IDX_STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="submit"
-                        disabled={isSaving}
-                        className="rounded-lg bg-slate-100 text-black text-xs font-medium px-3 py-1.5 hover:bg-white disabled:opacity-60"
-                      >
-                        {isSaving ? 'Saving…' : 'Save'}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isDeleting}
-                        onClick={() => handleDelete(conn.id)}
-                        className="rounded-lg border border-red-500/50 text-red-200 text-xs font-medium px-3 py-1.5 hover:bg-red-900/40 disabled:opacity-60"
-                      >
-                        {isDeleting ? 'Deleting…' : 'Delete'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {conn.last_error && (
-                    <p className="text-[11px] text-red-300">
-                      Last error: {conn.last_error}
-                    </p>
-                  )}
-                </form>
-              );
-            })}
-
-            {creatingNew && (
-              <form
-                onSubmit={handleCreateNew}
-                className="rounded-xl border border-dashed border-emerald-500/50 bg-emerald-950/20 p-3 space-y-3"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="space-y-0.5">
-                    <h3 className="text-xs font-semibold text-emerald-100 uppercase tracking-wide">
-                      New IDX connection
-                    </h3>
-                    <p className="text-[11px] text-emerald-200/80">
-                      Paste the details from your MLS or IDX vendor. You can
-                      edit this later.
-                    </p>
-                  </div>
+            <form
+              onSubmit={handleCreateConnection}
+              className="space-y-3 rounded-xl border border-white/10 bg-black/60 p-3"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
+                    Label
+                  </label>
+                  <input
+                    name="connection_label"
+                    className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    placeholder="e.g. CRMLS Office feed"
+                  />
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="space-y-1">
-                    <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                      Label
-                    </label>
-                    <input
-                      name="connection_label"
-                      className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                      placeholder="e.g. Office IDX feed"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                      Vendor
-                    </label>
-                    <input
-                      name="vendor_name"
-                      className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                      placeholder="e.g. CRMLS, IDX Broker"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                      MLS name (optional)
-                    </label>
-                    <input
-                      name="mls_name"
-                      defaultValue={brokerage.mls_name ?? ''}
-                      className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                      placeholder="If different from brokerage settings"
-                    />
-                  </div>
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
+                    Vendor name
+                  </label>
+                  <input
+                    name="vendor_name"
+                    className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    placeholder="e.g. CRMLS, IDX Broker, etc."
+                  />
                 </div>
+              </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
+                    MLS name
+                  </label>
+                  <input
+                    name="mls_name"
+                    defaultValue={brokerage.mls_name ?? ''}
+                    className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                    placeholder="e.g. CRMLS"
+                  />
+                </div>
                 <div className="space-y-1">
                   <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
                     Endpoint URL
@@ -645,100 +485,170 @@ function IdxSettingsInner() {
                   <input
                     name="endpoint_url"
                     className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                    placeholder="https://..."
+                    placeholder="Provided by your MLS or IDX vendor"
                   />
                 </div>
+              </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="space-y-1">
-                    <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                      Username
-                    </label>
-                    <input
-                      name="username"
-                      className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                      Password
-                    </label>
-                    <input
-                      name="password"
-                      type="password"
-                      className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                      API key
-                    </label>
-                    <input
-                      name="api_key"
-                      className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                    />
-                  </div>
-                </div>
-
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1">
                   <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                    Notes
+                    Username
                   </label>
-                  <textarea
-                    name="notes"
-                    className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400 resize-none min-h-[70px]"
-                    placeholder="Any special instructions, rate limits, sample queries, etc."
+                  <input
+                    name="username"
+                    className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
                   />
                 </div>
-
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <label className="text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                      Status
-                    </label>
-                    <select
-                      name="status"
-                      defaultValue="pending"
-                      className="rounded-lg border border-white/15 bg-black/70 px-2 py-1 text-[11px] text-slate-100 focus:outline-none focus:ring-1 focus:ring-slate-400"
-                    >
-                      {IDX_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="submit"
-                      disabled={savingId === 'new'}
-                      className="rounded-lg bg-emerald-400 text-black text-xs font-medium px-3 py-1.5 hover:bg-emerald-300 disabled:opacity-60"
-                    >
-                      {savingId === 'new' ? 'Saving…' : 'Create connection'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCreatingNew(false)}
-                      className="rounded-lg border border-slate-500/60 text-slate-200 text-xs font-medium px-3 py-1.5 hover:bg-slate-900/60"
-                    >
-                      Cancel
-                    </button>
-                  </div>
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
+                    Password
+                  </label>
+                  <input
+                    name="password"
+                    type="password"
+                    className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
                 </div>
-              </form>
-            )}
-          </div>
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
+                    API key (optional)
+                  </label>
+                  <input
+                    name="api_key"
+                    className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  />
+                </div>
+              </div>
 
-          {!creatingNew && (
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => setCreatingNew(true)}
-                className="inline-flex items-center rounded-lg border border-emerald-400/70 px-3 py-1.5 text-xs font-medium text-emerald-100 hover:bg-emerald-950/40"
-              >
-                <span className="mr-1 text-base leading-none">＋</span>
-                Add connection
-              </button>
+              <div className="space-y-1">
+                <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
+                  Notes
+                </label>
+                <textarea
+                  name="notes"
+                  className="w-full rounded-lg border border-white/15 bg-black/70 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400 min-h-[60px]"
+                  placeholder="Any special instructions from your MLS or vendor."
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-[11px] font-medium text-slate-300 uppercase tracking-wide">
+                  Status
+                </label>
+                <select
+                  name="status"
+                  className="w-full sm:w-auto rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                  defaultValue="pending"
+                >
+                  <option value="pending">Pending (waiting on MLS)</option>
+                  <option value="live">Live (ready to sync)</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-lg bg-slate-100 text-black text-xs font-medium px-3 py-1.5 hover:bg-white disabled:opacity-60"
+                >
+                  {saving ? 'Saving…' : 'Add IDX connection'}
+                </button>
+                <p className="text-[11px] text-slate-400">
+                  You can mark a connection Live once you&apos;ve tested it.
+                </p>
+              </div>
+            </form>
+          </section>
+        )}
+
+        {/* Existing connections list */}
+        <section className="rounded-2xl border border-white/10 bg-black/40 p-4 space-y-3">
+          <h2 className="text-sm font-medium text-slate-50">
+            Existing connections
+          </h2>
+
+          {connections.length === 0 ? (
+            <p className="text-xs text-slate-300">
+              No IDX connections configured yet. Once your MLS or vendor sends
+              you endpoint and credentials, add them above.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {connections.map((conn) => {
+                const test = testResults[conn.id];
+                return (
+                  <div
+                    key={conn.id}
+                    className="rounded-xl border border-white/10 bg-black/60 p-3 space-y-2"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-medium text-slate-50">
+                            {conn.connection_label || 'IDX connection'}
+                          </p>
+                          {statusChip(conn.status)}
+                        </div>
+                        <p className="text-[11px] text-slate-400">
+                          Vendor: {conn.vendor_name || '—'} • MLS:{' '}
+                          {conn.mls_name || brokerage.mls_name || '—'}
+                        </p>
+                        <p className="text-[11px] text-slate-500 break-all">
+                          {conn.endpoint_url || 'No endpoint URL set yet.'}
+                        </p>
+                      </div>
+                      {isBroker && (
+                        <button
+                          type="button"
+                          onClick={() => handleTestConnection(conn)}
+                          disabled={test?.loading}
+                          className="rounded-lg bg-slate-100 text-black text-[11px] font-medium px-3 py-1.5 hover:bg-white disabled:opacity-60"
+                        >
+                          {test?.loading ? 'Testing…' : 'Test sync'}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-400">
+                      <p>
+                        <span className="font-medium text-slate-300">
+                          Last status:
+                        </span>{' '}
+                        {conn.last_status_at
+                          ? formatDateTime(conn.last_status_at)
+                          : '—'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-slate-300">
+                          Last error:
+                        </span>{' '}
+                        {conn.last_error || '—'}
+                      </p>
+                    </div>
+
+                    {conn.notes && (
+                      <p className="text-[11px] text-slate-400">
+                        <span className="font-medium text-slate-300">
+                          Notes:
+                        </span>{' '}
+                        {conn.notes}
+                      </p>
+                    )}
+
+                    {test && test.message && (
+                      <p
+                        className={`text-[11px] ${
+                          test.ok ? 'text-emerald-300' : 'text-amber-300'
+                        }`}
+                      >
+                        Test: {test.message}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
@@ -754,3 +664,4 @@ export default function IdxSettingsPage() {
     </RequireAuth>
   );
 }
+
