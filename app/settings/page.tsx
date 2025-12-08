@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import RequireAuth from '../components/RequireAuth';
+import Link from 'next/link';
 
 type AgentRole = 'broker' | 'agent' | 'assistant' | 'admin';
 
@@ -478,6 +479,22 @@ function SettingsInner() {
 
           {hasBrokerage && (
             <div className="space-y-3">
+              {isBroker && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/60 p-3">
+                  <p className="text-[11px] text-slate-400">
+                    Once your MLS or IDX vendor sends endpoint and credentials,
+                    store them in Hayvn-RE so we can sync Active, Pending, and
+                    recent Sold listings.
+                  </p>
+                  <Link
+                    href="/settings/idx"
+                    className="inline-flex items-center rounded-lg bg-slate-100 text-black text-[11px] font-medium px-3 py-1.5 hover:bg-white whitespace-nowrap"
+                  >
+                    Manage MLS / IDX connections
+                  </Link>
+                </div>
+              )}
+
               <div className="rounded-xl border border-white/10 bg-black/60 p-3 space-y-2">
                 <h3 className="text-xs font-semibold text-slate-200 uppercase tracking-wide">
                   1. Confirm your MLS details
@@ -541,8 +558,9 @@ function SettingsInner() {
                 <p className="text-xs text-slate-300">
                   You can continue using clients, tours, offers, and other
                   tools today. Once your MLS or IDX vendor sends connection
-                  details, we&apos;ll add a place here to store the technical
-                  settings and start syncing listing data.
+                  details, your broker can store them on the MLS / IDX
+                  connections page and Hayvn-RE will start syncing listing
+                  data.
                 </p>
                 {!isBroker && (
                   <p className="text-[11px] text-slate-400">
@@ -567,5 +585,4 @@ export default function SettingsPage() {
     </RequireAuth>
   );
 }
-
 
