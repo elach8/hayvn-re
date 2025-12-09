@@ -1,13 +1,17 @@
 // supabase/functions/idx-sync/index.ts
 
-
 // Generic IDX sync function for Hayvn-RE.
 // - Reads idx_connections for each brokerage
 // - For each connection, fetches listings (Active, Pending, limited Sold)
 // - Upserts into mls_listings + mls_listing_photos
 //
-// NOTE: You still need to implement `fetchListingsForConnection`
-// for each MLS/vendor you support.
+// Preferred IDX format for Hayvn-RE:
+// - RESO Web API / OData "Property" endpoint
+// - JSON responses
+// - Authorization: Bearer <token> (stored in idx_connections.api_key)
+//
+// NOTE: Different MLSs may tweak field names. Once you see real CRMLS
+// JSON, you can adjust mapResoPropertyToNormalized mappings.
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -78,7 +82,8 @@ function getSupabaseClient(): SupabaseClient {
   const serviceKey = Deno.env.get("SERVICE_ROLE_KEY");
 
   if (!url || !serviceKey) {
-    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars");
+    // Match the env var names you set with `supabase secrets set`
+    throw new Error("Missing PROJECT_URL or SERVICE_ROLE_KEY env vars");
   }
 
   return createClient(url, serviceKey, {
@@ -101,7 +106,7 @@ serve(async (req) => {
     const connections = await loadConnectionsToSync(supabase, connectionId);
     if (connections.length === 0) {
       return jsonResponse(
-        { message: "No IDX connections to sync", connectionId },
+        { ok: true, message: "No IDX connections to sync", connectionId },
         200,
       );
     }
@@ -184,24 +189,60 @@ async function syncConnection(opts: {
   // 90-day Sold window
   const soldWindowDays = 90;
 
-  // 2) Fetch listings from MLS/vendor (you implement this)
-  const listings = await fetchListingsForConnection(connection, {
-    soldWindowDays,
-  });
+  try {
+    // 2) Fetch listings from MLS/vendor (Hayvn preferred format: RESO Web API / Bearer)
+    const listings = await fetchListingsForConnection(connection, {
+      soldWindowDays,
+    });
 
-  if (dryRun) {
-    console.log(
-      `Dry run: fetched ${listings.length} listings for connection ${connection.id}`,
+    if (dryRun) {
+      console.log(
+        `Dry run: fetched ${listings.length} listings for connection ${connection.id}`,
+      );
+
+      // For the UI "Test sync" button:
+      // - We DO NOT change status
+      // - We DO update last_status_at
+      // - We clear last_error
+      await markConnectionStatus(
+        supabase,
+        connection.id,
+        connection.status, // keep whatever it was
+        now,
+        null,
+      );
+
+      return {
+        connectionId: connection.id,
+        dryRun: true,
+        listingCount: listings.length,
+      };
+    }
+
+    if (listings.length === 0) {
+      console.log(`No listings returned for connection ${connection.id}`);
+      await markConnectionStatus(
+        supabase,
+        connection.id,
+        "live",
+        now,
+        null,
+      );
+      return {
+        connectionId: connection.id,
+        ok: true,
+        listingCount: 0,
+      };
+    }
+
+    // 3) Upsert listings + photos
+    const { insertedOrUpdated, photoInserts } = await upsertListingsAndPhotos(
+      supabase,
+      connection,
+      listings,
     );
-    return {
-      connectionId: connection.id,
-      dryRun: true,
-      listingCount: listings.length,
-    };
-  }
 
-  if (listings.length === 0) {
-    console.log(`No listings returned for connection ${connection.id}`);
+    // 4) Update connection status
     await markConnectionStatus(
       supabase,
       connection.id,
@@ -209,46 +250,49 @@ async function syncConnection(opts: {
       now,
       null,
     );
+
+    console.log(
+      `IDX sync complete for connection ${connection.id}: ${insertedOrUpdated} listings, ${photoInserts} photos`,
+    );
+
     return {
       connectionId: connection.id,
       ok: true,
+      listingCount: listings.length,
+      insertedOrUpdated,
+      photoInserts,
+    };
+  } catch (err: any) {
+    console.error(
+      `Error during IDX sync for connection ${connection.id}:`,
+      err,
+    );
+
+    const msg =
+      err?.message || "Unknown error during IDX sync for this connection";
+
+    // Record the error, but don't force status away from whatever it was
+    await markConnectionStatus(
+      supabase,
+      connection.id,
+      connection.status,
+      now,
+      msg,
+    );
+
+    return {
+      connectionId: connection.id,
+      ok: false,
       listingCount: 0,
+      error: msg,
     };
   }
-
-  // 3) Upsert listings + photos
-  const { insertedOrUpdated, photoInserts } = await upsertListingsAndPhotos(
-    supabase,
-    connection,
-    listings,
-  );
-
-  // 4) Update connection status
-  await markConnectionStatus(
-    supabase,
-    connection.id,
-    "live",
-    now,
-    null,
-  );
-
-  console.log(
-    `IDX sync complete for connection ${connection.id}: ${insertedOrUpdated} listings, ${photoInserts} photos`,
-  );
-
-  return {
-    connectionId: connection.id,
-    ok: true,
-    listingCount: listings.length,
-    insertedOrUpdated,
-    photoInserts,
-  };
 }
 
 async function markConnectionStatus(
   supabase: SupabaseClient,
   connectionId: string,
-  status: IdxStatus,
+  status: IdxStatus | null,
   lastStatusAt: string,
   lastError: string | null,
 ) {
@@ -397,31 +441,274 @@ async function upsertListingsAndPhotos(
 }
 
 /**
- * Stub: Fetch listings from a specific MLS/vendor.
+ * Fetch listings from an IDX connection.
  *
- * For now, this just returns an empty list. When you integrate CRMLS (or any other
- * MLS), you plug their API / RETS / RESO Web API here and normalize to NormalizedListing.
+ * For now, Hayvn-RE's preferred format is:
+ * - RESO Web API / OData Property endpoint
+ * - JSON response
+ * - Bearer token stored in idx_connections.api_key
+ *
+ * Any connection with endpoint_url + api_key is treated as that.
+ * Later, you can branch by adapter_key/vendor if you support more formats.
  */
 async function fetchListingsForConnection(
   connection: IdxConnection,
   opts: { soldWindowDays: number },
 ): Promise<NormalizedListing[]> {
+  const mlsName = (connection.mls_name || "").toLowerCase().trim();
+  const vendor = (connection.vendor_name || "").toLowerCase().trim();
+
+  console.log("fetchListingsForConnection()", {
+    connectionId: connection.id,
+    brokerage_id: connection.brokerage_id,
+    mls_name: connection.mls_name,
+    vendor_name: connection.vendor_name,
+    endpoint_url: connection.endpoint_url,
+    soldWindowDays: opts.soldWindowDays,
+  });
+
+  if (connection.endpoint_url && connection.api_key) {
+    return await fetchResoBearerListings(connection, opts);
+  }
+
   console.log(
-    "fetchListingsForConnection stub called for connection:",
-    connection.id,
-    "mls_name:",
-    connection.mls_name,
-    "vendor:",
-    connection.vendor_name,
-    "soldWindowDays:",
-    opts.soldWindowDays,
+    "No supported adapter for this connection yet (missing endpoint_url or api_key), returning empty list.",
+  );
+  return [];
+}
+
+/**
+ * Hayvn-RE preferred IDX format:
+ * - RESO Web API / OData "Property" endpoint
+ * - JSON responses
+ * - Authorization: Bearer <token> (stored in idx_connections.api_key)
+ *
+ * Example pattern:
+ *   GET <endpoint_url>
+ *     ?$filter=StandardStatus eq 'Active' or ...
+ *     &$orderby=ModificationTimestamp desc
+ *     &$top=500
+ *   Authorization: Bearer <access_token>
+ */
+async function fetchResoBearerListings(
+  connection: IdxConnection,
+  opts: { soldWindowDays: number },
+): Promise<NormalizedListing[]> {
+  const baseUrl = connection.endpoint_url;
+  const token = connection.api_key;
+
+  if (!baseUrl || !token) {
+    console.warn(
+      "fetchResoBearerListings(): missing endpoint_url or api_key on connection",
+      connection.id,
+    );
+    return [];
+  }
+
+  // Sold window
+  const soldCutoff = new Date();
+  soldCutoff.setDate(soldCutoff.getDate() - opts.soldWindowDays);
+  const soldCutoffStr = soldCutoff.toISOString().slice(0, 10); // YYYY-MM-DD
+
+  // Filter:
+  // - Active
+  // - Pending
+  // - Closed within last N days
+  //
+  // NOTE: Some RESO implementations need dates quoted, or use
+  // CloseDateActual / CloseDateTime, etc. This is a first-pass
+  // that you'll tweak when you see CRMLS's exact metadata.
+  const filterExpr =
+    "(" +
+    "StandardStatus eq 'Active'" +
+    " or StandardStatus eq 'Pending'" +
+    ` or (StandardStatus eq 'Closed' and CloseDate ge ${soldCutoffStr})` +
+    ")";
+
+  // Basic first-version strategy:
+  // - Pull up to 500 records ordered by ModificationTimestamp.
+  // - Later you can follow @odata.nextLink for more pages.
+  const url = new URL(baseUrl);
+  url.searchParams.set("$filter", filterExpr);
+  url.searchParams.set("$orderby", "ModificationTimestamp desc");
+  url.searchParams.set("$top", "500");
+
+  console.log("fetchResoBearerListings(): requesting URL", url.toString());
+
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    console.error(
+      "fetchResoBearerListings(): HTTP error",
+      res.status,
+      res.statusText,
+      text,
+    );
+    // Non-fatal: return [] so the connection doesn't poison the entire sync.
+    return [];
+  }
+
+  const body = await res.json().catch((err) => {
+    console.error("fetchResoBearerListings(): JSON parse error", err);
+    return null;
+  });
+
+  if (!body || !Array.isArray((body as any).value)) {
+    console.warn(
+      "fetchResoBearerListings(): response missing 'value' array",
+      body,
+    );
+    return [];
+  }
+
+  const records: any[] = (body as any).value;
+
+  const listings: NormalizedListing[] = [];
+  const mlsSource =
+    connection.mls_name || connection.vendor_name || connection.endpoint_url;
+
+  for (const record of records) {
+    const mapped = mapResoPropertyToNormalized(record, mlsSource);
+    if (mapped) listings.push(mapped);
+  }
+
+  console.log(
+    `fetchResoBearerListings(): mapped ${listings.length} listings for connection ${connection.id}`,
   );
 
-  // TODO: implement MLS-specific fetching here.
-  // Example shape:
-  // - Fetch Active + Pending
-  // - Fetch Sold where close_date >= now() - soldWindowDays
-  // - Normalize each listing to the NormalizedListing type.
+  return listings;
+}
 
-  return [];
+/**
+ * Map a RESO Web API "Property" record into your NormalizedListing shape.
+ *
+ * NOTE: Field names here follow typical RESO Data Dictionary conventions.
+ * Once you see your actual CRMLS metadata / sample JSON, you can adjust
+ * the mappings (CloseDate vs CloseDateActual, etc).
+ */
+function mapResoPropertyToNormalized(
+  record: any,
+  mlsSource: string | null,
+): NormalizedListing | null {
+  // Choose some reasonable fallback chain for the MLS number
+  const mlsNumber: string | null =
+    record.ListingId ??
+    record.ListingKey ??
+    (record.ListingKeyNumeric != null
+      ? String(record.ListingKeyNumeric)
+      : null);
+
+  if (!mlsNumber) {
+    console.warn("mapResoPropertyToNormalized(): missing ListingId/ListingKey");
+    return null;
+  }
+
+  const statusRaw: string | null =
+    record.StandardStatus ??
+    record.MlsStatus ??
+    null;
+
+  const status = normalizeResoStatus(statusRaw);
+
+  const toNumber = (val: unknown): number | null => {
+    if (val == null) return null;
+    const n = Number(val);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const normalized: NormalizedListing = {
+    mls_number: mlsNumber,
+    mls_source: mlsSource,
+
+    status,
+    list_date:
+      record.ListingContractDate ??
+      record.OnMarketDate ??
+      null,
+    close_date:
+      record.CloseDate ??
+      record.CloseDateActual ??
+      null,
+    status_last_changed_at:
+      record.ModificationTimestamp ??
+      null,
+
+    property_type: record.PropertyType ?? null,
+    listing_title: null, // many feeds don't have a distinct "title"
+    description:
+      record.PublicRemarks ??
+      record.PrivateRemarks ??
+      null,
+
+    list_price: toNumber(record.ListPrice),
+    original_list_price: toNumber(record.OriginalListPrice),
+    close_price: toNumber(record.ClosePrice),
+
+    beds: toNumber(record.BedroomsTotal),
+    baths: toNumber(record.BathroomsTotalInteger),
+    sqft:
+      toNumber(record.LivingArea) ??
+      toNumber(record.BuildingAreaTotal),
+    lot_sqft: toNumber(record.LotSizeSquareFeet),
+    year_built: toNumber(record.YearBuilt),
+
+    street_number: record.StreetNumber ?? null,
+    street_dir_prefix: record.StreetDirPrefix ?? null,
+    street_name: record.StreetName ?? null,
+    street_suffix: record.StreetSuffix ?? null,
+    unit: record.UnitNumber ?? null,
+    city: record.City ?? null,
+    state: record.StateOrProvince ?? null,
+    postal_code: record.PostalCode ?? null,
+    county: record.CountyOrParish ?? null,
+
+    latitude: toNumber(record.Latitude),
+    longitude: toNumber(record.Longitude),
+
+    // For now we are not pulling Media here.
+    // Later you can use $expand=Media and map it into photos.
+    photos: [],
+
+    raw_payload: record,
+  };
+
+  return normalized;
+}
+
+function normalizeResoStatus(statusRaw: string | null): NormalizedListing["status"] {
+  if (!statusRaw) return "other";
+
+  const s = statusRaw.toLowerCase();
+
+  if (
+    s === "active" ||
+    s === "comingsoon" ||
+    s === "coming soon" ||
+    s === "activeundercontract" ||
+    s === "active under contract"
+  ) {
+    return "active";
+  }
+
+  if (
+    s === "pending" ||
+    s === "hold" ||
+    s === "undercontract" ||
+    s === "under contract"
+  ) {
+    return "pending";
+  }
+
+  if (s === "closed" || s === "sold") {
+    return "sold";
+  }
+
+  return "other";
 }

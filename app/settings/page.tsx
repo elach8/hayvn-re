@@ -42,23 +42,29 @@ function getIdxEmailTemplate(brokerage: Brokerage | null, agent: Agent | null) {
   const agentName = agent?.full_name || '[Your Name]';
   const agentEmail = agent?.email || '[Your Email]';
 
-  return `Hi,
+  return `Hello,
 
-I'm ${agentName} with ${brokerageName}. We would like to set up an IDX (RESO Web API / RETS or equivalent) feed for our brokerage.
+I'm ${agentName} with ${brokerageName}. Our office would like to request IDX data access via the RESO Web API (OData) for internal brokerage software we use to manage clients, view market activity, and track listings. This system is not a public search website.
 
 Details:
 • MLS: ${mlsName}
-• MLS Office ID: ${mlsOfficeId}
-• Primary contact email: ${agentEmail}
+• Brokerage / Office ID: ${mlsOfficeId}
+• Primary Contact Email: ${agentEmail}
 
-The IDX data will be used in a private brokerage tool called Hayvn-RE to help our team manage clients, tours, and listings. We are not building a public IDX search site at this time; this is primarily for internal brokerage workflow.
+To set up our IDX connection, could you please provide the following:
 
-Please let us know:
-1) What steps are required to authorize IDX access for our office.
-2) Any paperwork or agreements we need to sign.
-3) The technical details for the feed (endpoint URL, credentials, and any vendor contact if you work through a third party).
+1) RESO Web API endpoint URL(s) for:
+   • Property resource
+   • Media / photos resource (or guidance if this is separate)
 
-You can send any technical documentation or next steps to me at ${agentEmail}.
+2) Authentication method used:
+   • Ideally a Bearer token (Client ID / Client Secret or similar).
+   • If different, please provide the correct auth process.
+
+3) Any agreements, forms, or permissions we need to complete prior to activation.
+
+Please send instructions and technical connection details to ${agentEmail}.
+We’re ready to proceed as soon as authorization is approved.
 
 Thank you!`;
 }
@@ -245,7 +251,7 @@ function SettingsInner() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-        <header className="space-y-1">
+        <header className="space-y-2">
           <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
             Settings
           </h1>
@@ -257,6 +263,17 @@ function SettingsInner() {
             <span className="text-slate-400">
               • {agent.role || 'agent'}
             </span>
+          </p>
+          <p className="text-xs text-slate-400">
+            First time here? Start with{' '}
+            <Link href="/settings/idx" className="underline underline-offset-2">
+              MLS &amp; IDX setup
+            </Link>
+            , then check{' '}
+            <Link href="/listings" className="underline underline-offset-2">
+              MLS listings
+            </Link>{' '}
+            once your feed is live.
           </p>
         </header>
 
@@ -479,22 +496,6 @@ function SettingsInner() {
 
           {hasBrokerage && (
             <div className="space-y-3">
-              {isBroker && (
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/60 p-3">
-                  <p className="text-[11px] text-slate-400">
-                    Once your MLS or IDX vendor sends endpoint and credentials,
-                    store them in Hayvn-RE so we can sync Active, Pending, and
-                    recent Sold listings.
-                  </p>
-                  <Link
-                    href="/settings/idx"
-                    className="inline-flex items-center rounded-lg bg-slate-100 text-black text-[11px] font-medium px-3 py-1.5 hover:bg-white whitespace-nowrap"
-                  >
-                    Manage MLS / IDX connections
-                  </Link>
-                </div>
-              )}
-
               <div className="rounded-xl border border-white/10 bg-black/60 p-3 space-y-2">
                 <h3 className="text-xs font-semibold text-slate-200 uppercase tracking-wide">
                   1. Confirm your MLS details
@@ -521,17 +522,18 @@ function SettingsInner() {
 
               <div className="rounded-xl border border-white/10 bg-black/60 p-3 space-y-2">
                 <h3 className="text-xs font-semibold text-slate-200 uppercase tracking-wide">
-                  2. Ask your MLS to enable IDX access
+                  2. Ask your MLS to enable IDX access (RESO Web API)
                 </h3>
                 <p className="text-xs text-slate-300">
                   Most MLS systems require a quick form or email to enable IDX
                   or RESO Web API access for your office. We&apos;ve prepared a
-                  simple email you can send to your MLS support team.
+                  simple email you can send to your MLS support team that
+                  requests a standard RESO Web API / Bearer token setup.
                 </p>
 
                 <div className="relative">
                   <textarea
-                    className="w-full rounded-xl border border-white/15 bg-black/70 px-3 py-2 text-xs text-slate-100 font-mono leading-snug resize-none min-h-[140px]"
+                    className="w-full rounded-xl border border-white/15 bg-black/70 px-3 py-2 text-xs text-slate-100 font-mono leading-snug resize-none min-h-[160px]"
                     readOnly
                     value={getIdxEmailTemplate(brokerage, agent)}
                   />
@@ -548,6 +550,11 @@ function SettingsInner() {
                       send it to your MLS support.
                     </p>
                   </div>
+                  <p className="mt-1 text-[11px] text-slate-500 italic">
+                    We recommend asking for a RESO Web API Property endpoint and a
+                    Bearer token, so all brokerages use the same secure format
+                    inside Hayvn-RE.
+                  </p>
                 </div>
               </div>
 
@@ -558,9 +565,8 @@ function SettingsInner() {
                 <p className="text-xs text-slate-300">
                   You can continue using clients, tours, offers, and other
                   tools today. Once your MLS or IDX vendor sends connection
-                  details, your broker can store them on the MLS / IDX
-                  connections page and Hayvn-RE will start syncing listing
-                  data.
+                  details, we&apos;ll add a place here to store the technical
+                  settings and start syncing listing data.
                 </p>
                 {!isBroker && (
                   <p className="text-[11px] text-slate-400">
