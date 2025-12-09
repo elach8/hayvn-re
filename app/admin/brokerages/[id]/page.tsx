@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
 
@@ -100,12 +101,10 @@ function statusBadge(status: string | null | undefined) {
   };
 }
 
-export default function AdminBrokerageDetailPage({
-  params,
-}: {
-  params: { id: string };
-}) {
-  const brokerageId = params.id;
+export default function AdminBrokerageDetailPage() {
+  const params = useParams();
+  const brokerageId = (params?.id as string) || null;
+
   const [loading, setLoading] = useState(true);
   const [notAllowed, setNotAllowed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +122,12 @@ export default function AdminBrokerageDetailPage({
   const [recentListings, setRecentListings] = useState<ListingRow[]>([]);
 
   useEffect(() => {
+    if (!brokerageId) {
+      setError('Missing brokerage id in route.');
+      setLoading(false);
+      return;
+    }
+
     const load = async () => {
       setLoading(true);
       setError(null);
@@ -643,4 +648,3 @@ export default function AdminBrokerageDetailPage({
     </main>
   );
 }
-
