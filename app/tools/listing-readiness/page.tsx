@@ -13,6 +13,13 @@ type CurrentAgent = {
   email: string | null;
 };
 
+type ClientOption = {
+  id: string;
+  name: string | null;
+  client_type: string | null;
+  stage: string | null;
+};
+
 type FormState = {
   scenario: Scenario;
   address_line: string;
@@ -41,6 +48,9 @@ const DEFAULT_FORM: FormState = {
 
 export default function ListingReadinessPage() {
   const [agent, setAgent] = useState<CurrentAgent | null>(null);
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<string | ''>('');
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,8 +58,7 @@ export default function ListingReadinessPage() {
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
 
-  // For now we’re not wiring client/listing query params.
-  const clientId: string | null = null;
+  // For now we’re not wiring property / MLS link yet.
   const mlsListingId: string | null = null;
   const propertyId: string | null = null;
 
@@ -59,6 +68,7 @@ export default function ListingReadinessPage() {
       setError(null);
       setSuccess(null);
 
+      // 1) Auth/session
       const {
         data: { session },
         error: sessionError,
@@ -72,7 +82,7 @@ export default function ListingReadinessPage() {
 
       const user = session.user;
 
-      // Load agent record
+      // 2) Load agent record
       const { data: agentRow, error: agentError } = await supabase
         .from('agents')
         .select('id, full_name, email')
@@ -86,11 +96,31 @@ export default function ListingReadinessPage() {
         return;
       }
 
-      setAgent({
+      const currentAgent: CurrentAgent = {
         id: agentRow.id as string,
         full_name: (agentRow.full_name as string | null) ?? null,
         email: (agentRow.email as string | null) ?? null,
-      });
+      };
+      setAgent(currentAgent);
+
+      // 3) Load clients (for now: all clients; later you can scope to agent/brokerage)
+      const { data: clientRows, error: clientError } = await supabase
+        .from('clients')
+        .select('id, name, client_type, stage')
+        .order('name', { ascending: true });
+
+      if (clientError) {
+        console.error('Error loading clients for listing readiness:', clientError);
+        // Not fatal – tool still works, just without linking.
+      } else {
+        const opts: ClientOption[] = (clientRows || []).map((row: any) => ({
+          id: row.id as string,
+          name: (row.name as string | null) ?? null,
+          client_type: (row.client_type as string | null) ?? null,
+          stage: (row.stage as string | null) ?? null,
+        }));
+        setClients(opts);
+      }
 
       setLoading(false);
     };
@@ -112,10 +142,8 @@ export default function ListingReadinessPage() {
       form.market_fit_score,
       form.logistics_score,
     ];
-
     const avg = parts.reduce((sum, v) => sum + v, 0) / parts.length;
-    // convert 1–5 scale → 0–100
-    return Math.round((avg / 5) * 100);
+    return Math.round((avg / 5) * 100); // 1–5 → 0–100
   }, [
     form.condition_score,
     form.presentation_score,
@@ -132,11 +160,13 @@ export default function ListingReadinessPage() {
     setSuccess(null);
 
     try {
+      const clientIdToSave = selectedClientId || null;
+
       const { error: insertError } = await supabase
         .from('listing_readiness_scores')
         .insert({
           agent_id: agent.id,
-          client_id: clientId,
+          client_id: clientIdToSave,
           property_id: propertyId,
           mls_listing_id: mlsListingId,
           scenario: form.scenario,
@@ -185,9 +215,8 @@ export default function ListingReadinessPage() {
               Listing Readiness Score
             </h1>
             <p className="mt-1 text-sm text-slate-300 max-w-xl">
-              Use this with a seller before or after going live. Score condition,
-              presentation, market fit, and logistics, then save the result to come
-              back to later.
+              Start with the client, then score condition, presentation, market fit,
+              and logistics so you can talk through a clear plan with them.
             </p>
           </div>
           <Link
@@ -209,8 +238,8 @@ export default function ListingReadinessPage() {
                   {agent.full_name || agent.email || 'Agent'}
                 </p>
                 <p className="text-[11px] text-slate-400">
-                  Scores are saved to your account and can be linked to clients or
-                  listings later.
+                  Scores are saved to your account and linked to a client when you
+                  choose one below.
                 </p>
               </div>
             )}
@@ -230,8 +259,8 @@ export default function ListingReadinessPage() {
                   <span className="text-sm text-slate-400"> / 100</span>
                 </p>
                 <p className="mt-1 text-[11px] text-slate-300">
-                  We&apos;ll start with a simple weighted average. Later we can
-                  layer in AI and market context.
+                  Simple weighted average for now. Later we can layer in market data
+                  and AI advice.
                 </p>
               </div>
             </div>
@@ -256,92 +285,136 @@ export default function ListingReadinessPage() {
             onSubmit={handleSubmit}
             className="space-y-4 rounded-2xl border border-white/10 bg-black/40 px-4 py-4"
           >
-            {/* Scenario + address */}
-            <section className="grid gap-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,2fr)]">
+            {/* Client attachment + scenario + address */}
+            <section className="space-y-4">
+              {/* Attach to client */}
               <div className="space-y-2">
                 <label className="block text-xs font-medium text-slate-200">
-                  Scenario
+                  Client (who this conversation is for)
                 </label>
-                <div className="flex flex-col gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => handleChange('scenario', 'pre_listing')}
-                    className={[
-                      'rounded-xl border px-3 py-2 text-left',
-                      form.scenario === 'pre_listing'
-                        ? 'border-[#EBD27A] bg-[#EBD27A]/10 text-slate-50'
-                        : 'border-white/15 bg-black/40 text-slate-300 hover:bg-white/5',
-                    ].join(' ')}
-                  >
-                    <div className="font-medium">Pre-listing (not yet in MLS)</div>
-                    <p className="text-[11px] text-slate-400">
-                      Use this in your listing appointment or while prepping the
-                      property.
+                <div className="grid gap-2 md:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)]">
+                  <div>
+                    <select
+                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
+                      value={selectedClientId}
+                      onChange={(e) => setSelectedClientId(e.target.value)}
+                    >
+                      <option value="">Not linked to a client yet</option>
+                      {clients.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name || 'Unnamed client'}
+                          {c.client_type ? ` • ${c.client_type}` : ''}
+                          {c.stage ? ` • ${c.stage}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Linking is optional, but highly recommended so you can pull this
+                      up later in the client record.
                     </p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleChange('scenario', 'active_listing')}
-                    className={[
-                      'rounded-xl border px-3 py-2 text-left',
-                      form.scenario === 'active_listing'
-                        ? 'border-[#EBD27A] bg-[#EBD27A]/10 text-slate-50'
-                        : 'border-white/15 bg-black/40 text-slate-300 hover:bg-white/5',
-                    ].join(' ')}
-                  >
-                    <div className="font-medium">Already live in MLS</div>
-                    <p className="text-[11px] text-slate-400">
-                      Use this to evaluate how the listing shows and where to
-                      improve.
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[11px] text-slate-300">
+                    <p className="font-medium text-slate-100 mb-1">
+                      How this is stored
                     </p>
-                  </button>
+                    <p>
+                      We save the score to <code>listing_readiness_scores</code> with
+                      a reference to the client you select here. Later we can add
+                      views in the client detail page.
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="block text-xs font-medium text-slate-200">
-                  Property address (snapshot)
-                </label>
-                <div className="space-y-2 text-xs">
-                  <input
-                    type="text"
-                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                    placeholder="123 Main St"
-                    value={form.address_line}
-                    onChange={(e) => handleChange('address_line', e.target.value)}
-                  />
-                  <div className="grid grid-cols-2 gap-2">
+              {/* Scenario + address */}
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,2fr)]">
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium text-slate-200">
+                    Scenario
+                  </label>
+                  <div className="flex flex-col gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => handleChange('scenario', 'pre_listing')}
+                      className={[
+                        'rounded-xl border px-3 py-2 text-left',
+                        form.scenario === 'pre_listing'
+                          ? 'border-[#EBD27A] bg-[#EBD27A]/10 text-slate-50'
+                          : 'border-white/15 bg-black/40 text-slate-300 hover:bg-white/5',
+                      ].join(' ')}
+                    >
+                      <div className="font-medium">
+                        Pre-listing (not yet in MLS)
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Use this in your listing appointment or while prepping the
+                        property.
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleChange('scenario', 'active_listing')}
+                      className={[
+                        'rounded-xl border px-3 py-2 text-left',
+                        form.scenario === 'active_listing'
+                          ? 'border-[#EBD27A] bg-[#EBD27A]/10 text-slate-50'
+                          : 'border-white/15 bg-black/40 text-slate-300 hover:bg-white/5',
+                      ].join(' ')}
+                    >
+                      <div className="font-medium">Already live in MLS</div>
+                      <p className="text-[11px] text-slate-400">
+                        Use this to evaluate how the listing shows and where to
+                        improve.
+                      </p>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium text-slate-200">
+                    Property address (snapshot)
+                  </label>
+                  <div className="space-y-2 text-xs">
                     <input
                       type="text"
-                      className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                      placeholder="City"
-                      value={form.city}
-                      onChange={(e) => handleChange('city', e.target.value)}
+                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
+                      placeholder="123 Main St"
+                      value={form.address_line}
+                      onChange={(e) => handleChange('address_line', e.target.value)}
                     />
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                       <input
                         type="text"
-                        className="w-16 rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                        placeholder="CA"
-                        value={form.state}
-                        onChange={(e) => handleChange('state', e.target.value)}
+                        className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
+                        placeholder="City"
+                        value={form.city}
+                        onChange={(e) => handleChange('city', e.target.value)}
                       />
-                      <input
-                        type="text"
-                        className="flex-1 rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                        placeholder="Zip"
-                        value={form.postal_code}
-                        onChange={(e) =>
-                          handleChange('postal_code', e.target.value)
-                        }
-                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          className="w-16 rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
+                          placeholder="CA"
+                          value={form.state}
+                          onChange={(e) => handleChange('state', e.target.value)}
+                        />
+                        <input
+                          type="text"
+                          className="flex-1 rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
+                          placeholder="Zip"
+                          value={form.postal_code}
+                          onChange={(e) =>
+                            handleChange('postal_code', e.target.value)
+                          }
+                        />
+                      </div>
                     </div>
+                    <p className="text-[11px] text-slate-500">
+                      This is stored with the score so it doesn&apos;t change even if
+                      your property record does.
+                    </p>
                   </div>
-                  <p className="text-[11px] text-slate-500">
-                    This is stored with the score so it doesn&apos;t change even if
-                    your property record does.
-                  </p>
                 </div>
               </div>
             </section>
@@ -425,7 +498,7 @@ export default function ListingReadinessPage() {
             {/* Notes + actions */}
             <section className="space-y-2">
               <label className="block text-xs font-medium text-slate-200">
-                Notes for yourself / seller
+                Notes for yourself / client conversation
               </label>
               <textarea
                 rows={4}
@@ -438,14 +511,16 @@ export default function ListingReadinessPage() {
 
             <section className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2 border-t border-white/10">
               <p className="text-[11px] text-slate-500 max-w-md">
-                This saves a snapshot of your score and address. Later we can add
-                history, export, and AI recommendations.
+                This saves a snapshot of your score, client link, and address. Later
+                we can surface this in the client detail page and use it for AI
+                suggestions.
               </p>
               <div className="flex gap-2 justify-end">
                 <button
                   type="button"
                   onClick={() => {
                     setForm(DEFAULT_FORM);
+                    setSelectedClientId('');
                     setSuccess(null);
                     setError(null);
                   }}
