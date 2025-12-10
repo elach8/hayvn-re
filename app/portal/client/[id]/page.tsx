@@ -72,6 +72,23 @@ type JourneyOffer = {
   } | null;
 };
 
+type ListingReadinessReport = {
+  id: string;
+  client_id: string;
+  status: string | null; // draft | ready_to_list | needs_work | etc.
+  score_overall: number | null;
+  property_address: string | null;
+  property_city: string | null;
+  property_state: string | null;
+  property_postal_code: string | null;
+  property_type: string | null;
+  staging_status: string | null;
+  pricing_confidence: string | null;
+  market_position: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 type JourneyState = {
   loading: boolean;
   error: string | null;
@@ -82,6 +99,7 @@ type JourneyState = {
   savedHomes: SavedProperty[];
   tours: JourneyTour[];
   offers: JourneyOffer[];
+  listingReports: ListingReadinessReport[];
 };
 
 function ClientJourneyInner() {
@@ -99,6 +117,7 @@ function ClientJourneyInner() {
     savedHomes: [],
     tours: [],
     offers: [],
+    listingReports: [],
   });
 
   useEffect(() => {
@@ -311,6 +330,54 @@ function ClientJourneyInner() {
             : null,
         }));
 
+        // 8) Listing readiness reports (read-only snapshot for the client)
+        const { data: reportRows, error: reportError } = await supabase
+          .from('listing_readiness_reports')
+          .select(
+            `
+            id,
+            client_id,
+            status,
+            score_overall,
+            property_address,
+            property_city,
+            property_state,
+            property_postal_code,
+            property_type,
+            staging_status,
+            pricing_confidence,
+            market_position,
+            created_at,
+            updated_at
+          `
+          )
+          .eq('client_id', client.id)
+          .order('created_at', { ascending: false });
+
+        if (reportError) throw reportError;
+
+        const listingReports: ListingReadinessReport[] = (reportRows || []).map(
+          (r: any) => ({
+            id: r.id as string,
+            client_id: r.client_id as string,
+            status: (r.status as string | null) ?? null,
+            score_overall:
+              typeof r.score_overall === 'number'
+                ? (r.score_overall as number)
+                : null,
+            property_address: (r.property_address as string | null) ?? null,
+            property_city: (r.property_city as string | null) ?? null,
+            property_state: (r.property_state as string | null) ?? null,
+            property_postal_code: (r.property_postal_code as string | null) ?? null,
+            property_type: (r.property_type as string | null) ?? null,
+            staging_status: (r.staging_status as string | null) ?? null,
+            pricing_confidence: (r.pricing_confidence as string | null) ?? null,
+            market_position: (r.market_position as string | null) ?? null,
+            created_at: (r.created_at as string | null) ?? null,
+            updated_at: (r.updated_at as string | null) ?? null,
+          })
+        );
+
         setState({
           loading: false,
           error: null,
@@ -321,6 +388,7 @@ function ClientJourneyInner() {
           savedHomes,
           tours,
           offers,
+          listingReports,
         });
       } catch (err: any) {
         console.error('Client portal journey error:', err);
@@ -345,6 +413,7 @@ function ClientJourneyInner() {
     savedHomes,
     tours,
     offers,
+    listingReports,
   } = state;
 
   const formatMoney = (v: number | null) =>
@@ -364,6 +433,19 @@ function ClientJourneyInner() {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '-';
     return d.toLocaleString();
+  };
+
+  const formatScore = (score: number | null) => {
+    if (score == null) return 'In progress';
+    return `${score}/100`;
+  };
+
+  const summarizeStatus = (status: string | null) => {
+    if (!status) return 'In review';
+    if (status === 'ready_to_list') return 'Ready to list';
+    if (status === 'needs_work') return 'Needs preparation';
+    if (status === 'draft') return 'Draft';
+    return status;
   };
 
   const now = useMemo(() => new Date(), []);
@@ -495,6 +577,150 @@ function ClientJourneyInner() {
               <span className="font-medium text-slate-100">Agent notes:</span>{' '}
               {client.notes}
             </p>
+          )}
+        </section>
+
+        {/* Listing readiness (read-only view) */}
+        <section className="rounded-2xl border border-white/10 bg-black/40 p-4 text-sm space-y-3">
+          <header className="flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-50">
+                Listing readiness
+              </h2>
+              <p className="text-xs text-slate-400 max-w-md">
+                When your agent evaluates how ready your home is to go on the
+                market, their summary will appear here.
+              </p>
+            </div>
+            <div className="text-[11px] text-slate-400">
+              {listingReports.length} evaluation
+              {listingReports.length === 1 ? '' : 's'}
+            </div>
+          </header>
+
+          {listingReports.length === 0 ? (
+            <p className="text-xs text-slate-400">
+              Your agent hasn&apos;t shared a listing readiness evaluation yet.
+              As they prepare your home for market, you may see a summary of
+              that work appear here.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {/* Highlight the most recent report */}
+              {(() => {
+                const latest = listingReports[0];
+                return (
+                  <article className="rounded-xl border border-[#EBD27A]/40 bg-gradient-to-br from-black/60 via-slate-950/80 to-black/80 px-3 py-3 flex flex-col gap-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="text-xs uppercase tracking-wide text-slate-400">
+                          Latest evaluation
+                        </div>
+                        <div className="text-sm font-semibold text-slate-50">
+                          {latest.property_address || 'Home evaluation'}
+                        </div>
+                        {(latest.property_city || latest.property_state) && (
+                          <div className="text-[11px] text-slate-400">
+                            {[latest.property_city, latest.property_state]
+                              .filter(Boolean)
+                              .join(', ')}
+                            {latest.property_postal_code
+                              ? ` ${latest.property_postal_code}`
+                              : ''}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right text-xs">
+                        <div className="inline-flex flex-col items-end rounded-xl border border-[#EBD27A]/40 bg-[#EBD27A]/10 px-3 py-2 min-w-[110px]">
+                          <span className="text-[10px] uppercase tracking-wide text-[#EBD27A]/90">
+                            Overall score
+                          </span>
+                          <span className="text-lg font-semibold text-[#EBD27A] leading-none mt-0.5">
+                            {formatScore(latest.score_overall)}
+                          </span>
+                          <span className="mt-1 text-[10px] text-slate-200">
+                            {summarizeStatus(latest.status)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2 text-[11px]">
+                      <div>
+                        <div className="text-slate-400 uppercase tracking-wide">
+                          Home type
+                        </div>
+                        <div className="text-slate-100">
+                          {latest.property_type || 'Not specified'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-slate-400 uppercase tracking-wide">
+                          Staging / presentation
+                        </div>
+                        <div className="text-slate-100">
+                          {latest.staging_status || 'In progress'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-slate-400 uppercase tracking-wide">
+                          Pricing &amp; market
+                        </div>
+                        <div className="text-slate-100">
+                          {latest.pricing_confidence || latest.market_position
+                            ? [latest.pricing_confidence, latest.market_position]
+                                .filter(Boolean)
+                                .join(' • ')
+                            : 'Under review'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {latest.updated_at && (
+                      <div className="mt-2 text-[10px] text-slate-400">
+                        Last updated {formatDateTime(latest.updated_at)}
+                      </div>
+                    )}
+                  </article>
+                );
+              })()}
+
+              {/* Previous evaluations, if any */}
+              {listingReports.length > 1 && (
+                <div className="border-t border-white/10 pt-2 space-y-1.5 text-[11px]">
+                  <div className="text-slate-400 uppercase tracking-wide">
+                    Previous evaluations
+                  </div>
+                  <div className="space-y-1.5">
+                    {listingReports.slice(1).map((r) => (
+                      <div
+                        key={r.id}
+                        className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-slate-100 truncate">
+                            {r.property_address || 'Home evaluation'}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            {r.created_at
+                              ? `Created ${formatDateTime(r.created_at)}`
+                              : ''}
+                          </div>
+                        </div>
+                        <div className="text-right text-[11px]">
+                          <div className="font-medium text-slate-100">
+                            {formatScore(r.score_overall)}
+                          </div>
+                          <div className="text-slate-400">
+                            {summarizeStatus(r.status)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </section>
 
@@ -753,3 +979,4 @@ function ClientJourneyInner() {
 export default function ClientJourneyPage() {
   return <ClientJourneyInner />;
 }
+

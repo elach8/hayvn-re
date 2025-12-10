@@ -927,6 +927,45 @@ export default function ClientDetailPage() {
             )}
           </Card>
 
+          {/* Listing readiness tool hook */}
+          <Card className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  Listing readiness (beta)
+                </h2>
+                <p className="text-xs text-slate-300 max-w-xl">
+                  Quickly score how ready this client&apos;s home is to go to
+                  market across condition, repairs, staging, and marketing
+                  assets. Use it as a structured talking point with the client.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Link
+                  href={`/tools/listing-readiness?client_id=${encodeURIComponent(
+                    client.id
+                  )}`}
+                >
+                  <Button className="text-xs px-3 py-1.5">
+                    Open listing readiness tool
+                  </Button>
+                </Link>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-dashed border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-300">
+              <p>
+                This tool is tied to the client first. Inside the tool you can
+                optionally link the score to a specific property once it&apos;s
+                created in your pipeline.
+              </p>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Coming soon: a history of scores for this client will appear
+                here once we finalize the scoring storage.
+              </p>
+            </div>
+          </Card>
+
           {/* Client portal access */}
           <Card className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -1232,543 +1271,537 @@ export default function ClientDetailPage() {
               <h2 className="text-lg font-semibold text-white">
                 Offers with this client
               </h2>
-              <Link href="/offers/new">
-                <Button variant="secondary" className="text-xs px-3 py-1.5">
-                  + New offer
-                </Button>
-              </Link>
-            </div>
+            <Link href="/offers/new">
+              <Button variant="secondary" className="text-xs px-3 py-1.5">
+                + New offer
+              </Button>
+            </Link>
+          </div>
 
-            {offersError && (
-              <p className="text-sm text-red-300">
-                Error loading offers: {offersError}
-              </p>
-            )}
+          {offersError && (
+            <p className="text-sm text-red-300">
+              Error loading offers: {offersError}
+            </p>
+          )}
 
-            {offersLoading && (
-              <p className="text-sm text-slate-300">Loading offers…</p>
-            )}
+          {offersLoading && (
+            <p className="text-sm text-slate-300">Loading offers…</p>
+          )}
 
-            {!offersLoading && offers.length === 0 && !offersError && (
-              <p className="text-sm text-slate-300">
-                No offers yet for this client. When you create an offer tied to
-                this client, it will show up here.
-              </p>
-            )}
+          {!offersLoading && offers.length === 0 && !offersError && (
+            <p className="text-sm text-slate-300">
+              No offers yet for this client. When you create an offer tied to
+              this client, it will show up here.
+            </p>
+          )}
 
-            {!offersLoading && offers.length > 0 && (
-              <div className="overflow-x-auto rounded-lg border border-white/10 bg-black/40">
-                <table className="min-w-full text-xs sm:text-sm">
-                  <thead className="bg-white/5 text-slate-300">
-                    <tr>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">
-                        Property
-                      </th>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">
-                        Offer
-                      </th>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">
-                        Status
-                      </th>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">
-                        Client decision
-                      </th>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">
-                        Client feedback
-                      </th>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">
-                        Created / Updated
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {offers.map((o) => (
-                      <tr
-                        key={o.id}
-                        className="hover:bg-white/5 text-slate-100 align-top"
-                      >
-                        <td className="border-b border-white/5 px-2 py-1">
-                          {o.property ? (
-                            <>
-                              <Link
-                                href={`/properties/${o.property.id}`}
-                                className="text-[#EBD27A] hover:underline"
-                              >
-                                {o.property.address}
-                              </Link>
-                              <div className="text-[11px] text-slate-400">
-                                {o.property.city || ''}
-                                {o.property.state
-                                  ? `, ${o.property.state}`
-                                  : ''}
-                                {o.property.pipeline_stage
-                                  ? ` • ${o.property.pipeline_stage}`
-                                  : ''}
-                              </div>
-                            </>
-                          ) : (
-                            <span className="text-slate-500">
-                              (no property linked)
-                            </span>
-                          )}
-                        </td>
-
-                        <td className="border-b border-white/5 px-2 py-1 whitespace-nowrap">
-                          <div className="font-semibold">
-                            {formatPrice(o.offer_price)}
-                          </div>
-                        </td>
-
-                        <td className="border-b border-white/5 px-2 py-1 whitespace-nowrap">
-                          {o.status || '—'}
-                        </td>
-
-                        <td className="border-b border-white/5 px-2 py-1">
-                          {o.client_decision ? (
-                            <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[11px] text-slate-100">
-                              {o.client_decision === 'accept'
-                                ? 'Client wants to accept'
-                                : o.client_decision === 'counter'
-                                ? 'Client wants to counter'
-                                : o.client_decision === 'decline'
-                                ? 'Client would decline'
-                                : o.client_decision === 'reviewing'
-                                ? 'Client still reviewing'
-                                : o.client_decision}
-                            </span>
-                          ) : (
-                            <span className="text-[11px] text-slate-500">
-                              No decision yet
-                            </span>
-                          )}
-                        </td>
-
-                        <td className="border-b border-white/5 px-2 py-1 text-xs">
-                          {o.client_feedback ? (
-                            <div className="max-w-xs whitespace-pre-wrap text-slate-100">
-                              {o.client_feedback}
-                            </div>
-                          ) : (
-                            <span className="text-slate-500">
-                              No feedback yet
-                            </span>
-                          )}
-                        </td>
-
-                        <td className="border-b border-white/5 px-2 py-1 text-[11px] text-slate-400 whitespace-nowrap">
-                          <div>
-                            {o.created_at && (
-                              <div>
-                                Created: {formatDateTime(o.created_at)}
-                              </div>
-                            )}
-                            {o.updated_at && (
-                              <div>
-                                Updated: {formatDateTime(o.updated_at)}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-
-          {/* Attached properties */}
-          <Card className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">Properties</h2>
-              <Link href="/properties/new">
-                <Button variant="secondary" className="text-xs px-3 py-1.5">
-                  + Add new property
-                </Button>
-              </Link>
-            </div>
-
-            {propsError && (
-              <p className="text-sm text-red-300">
-                Error loading properties: {propsError}
-              </p>
-            )}
-
-            {/* Attach property form */}
-            <form
-              id="attach-property-form"
-              onSubmit={handleAttachProperty}
-              className="border border-white/10 rounded-md p-3 bg-black/40 text-sm space-y-2"
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-slate-200">
-                    Property
-                  </label>
-                  <select
-                    value={selectedPropertyId}
-                    onChange={(e) => setSelectedPropertyId(e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
-                  >
-                    <option value="">Select property…</option>
-                    {allProperties.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.address} – {p.city}, {p.state}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-slate-200">
-                    Relationship
-                  </label>
-                  <select
-                    value={relationship}
-                    onChange={(e) => setRelationship(e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
-                  >
-                    {RELATIONSHIP_OPTIONS.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-slate-200">
-                    Interest level
-                  </label>
-                  <select
-                    value={interestLevel}
-                    onChange={(e) => setInterestLevel(e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
-                  >
-                    {INTEREST_OPTIONS.map((i) => (
-                      <option key={i} value={i}>
-                        {i}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between mt-1">
-                <label className="flex items-center gap-2 text-xs text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={isFavorite}
-                    onChange={(e) => setIsFavorite(e.target.checked)}
-                    className="h-3 w-3 rounded border border-white/40 bg-black/60"
-                  />
-                  Mark as favorite
-                </label>
-
-                <Button
-                  type="submit"
-                  disabled={
-                    addingProperty || propsLoading || allProperties.length === 0
-                  }
-                  className="text-xs px-3 py-1.5"
-                >
-                  {addingProperty ? 'Attaching…' : 'Attach property'}
-                </Button>
-              </div>
-
-              {addPropertyError && (
-                <p className="text-xs text-red-300 mt-1">
-                  {addPropertyError}
-                </p>
-              )}
-            </form>
-
-            {propsLoading && (
-              <p className="text-sm text-slate-300">
-                Loading client properties…
-              </p>
-            )}
-
-            {!propsLoading && clientProperties.length === 0 && (
-              <p className="text-sm text-slate-300">
-                No properties attached yet. Use the form above to attach one of
-                your tracked deals.
-              </p>
-            )}
-
-            {!propsLoading && clientProperties.length > 0 && (
-              <div className="overflow-x-auto rounded-lg border border-white/10 bg-black/40">
-                <table className="min-w-full text-xs sm:text-sm">
-                  <thead className="bg-white/5 text-slate-300">
-                    <tr>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">
-                        Property
-                      </th>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">
-                        Relationship
-                      </th>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">
-                        Interest
-                      </th>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">
-                        Stage
-                      </th>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">
-                        Client feedback
-                      </th>
-                      <th className="border-b border-white/10 px-2 py-1 text-right">
-                        Price
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {clientProperties.map((cp) => (
-                      <tr
-                        key={cp.id}
-                        className="hover:bg-white/5 text-slate-100"
-                      >
-                        <td className="border-b border-white/5 px-2 py-1">
-                          {cp.property ? (
+          {!offersLoading && offers.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border border-white/10 bg-black/40">
+              <table className="min-w-full text-xs sm:text-sm">
+                <thead className="bg-white/5 text-slate-300">
+                  <tr>
+                    <th className="border-b border-white/10 px-2 py-1 text-left">
+                      Property
+                    </th>
+                    <th className="border-b border-white/10 px-2 py-1 text-left">
+                      Offer
+                    </th>
+                    <th className="border-b border-white/10 px-2 py-1 text-left">
+                      Status
+                    </th>
+                    <th className="border-b border-white/10 px-2 py-1 text-left">
+                      Client decision
+                    </th>
+                    <th className="border-b border-white/10 px-2 py-1 text-left">
+                      Client feedback
+                    </th>
+                    <th className="border-b border-white/10 px-2 py-1 text-left">
+                      Created / Updated
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {offers.map((o) => (
+                    <tr
+                      key={o.id}
+                      className="hover:bg-white/5 text-slate-100 align-top"
+                    >
+                      <td className="border-b border-white/5 px-2 py-1">
+                        {o.property ? (
+                          <>
                             <Link
-                              href={`/properties/${cp.property.id}`}
+                              href={`/properties/${o.property.id}`}
                               className="text-[#EBD27A] hover:underline"
                             >
-                              {cp.property.address}
+                              {o.property.address}
                             </Link>
-                          ) : (
-                            <span className="text-slate-500">
-                              (missing property)
-                            </span>
-                          )}
-                          {cp.property && (
                             <div className="text-[11px] text-slate-400">
-                              {cp.property.city}, {cp.property.state}{' '}
-                              {cp.is_favorite ? ' • ★ favorite' : ''}
+                              {o.property.city || ''}
+                              {o.property.state
+                                ? `, ${o.property.state}`
+                                : ''}
+                              {o.property.pipeline_stage
+                                ? ` • ${o.property.pipeline_stage}`
+                                : ''}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="text-slate-500">
+                            (no property linked)
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="border-b border-white/5 px-2 py-1 whitespace-nowrap">
+                        <div className="font-semibold">
+                          {formatPrice(o.offer_price)}
+                        </div>
+                      </td>
+
+                      <td className="border-b border-white/5 px-2 py-1 whitespace-nowrap">
+                        {o.status || '—'}
+                      </td>
+
+                      <td className="border-b border-white/5 px-2 py-1">
+                        {o.client_decision ? (
+                          <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[11px] text-slate-100">
+                            {o.client_decision === 'accept'
+                              ? 'Client wants to accept'
+                              : o.client_decision === 'counter'
+                              ? 'Client wants to counter'
+                              : o.client_decision === 'decline'
+                              ? 'Client would decline'
+                              : o.client_decision === 'reviewing'
+                              ? 'Client still reviewing'
+                              : o.client_decision}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-500">
+                            No decision yet
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="border-b border-white/5 px-2 py-1 text-xs">
+                        {o.client_feedback ? (
+                          <div className="max-w-xs whitespace-pre-wrap text-slate-100">
+                            {o.client_feedback}
+                          </div>
+                        ) : (
+                          <span className="text-slate-500">
+                            No feedback yet
+                          </span>
+                        )}
+                      </td>
+
+                      <td className="border-b border-white/5 px-2 py-1 text-[11px] text-slate-400 whitespace-nowrap">
+                        <div>
+                          {o.created_at && (
+                            <div>
+                              Created: {formatDateTime(o.created_at)}
                             </div>
                           )}
-                        </td>
-                        <td className="border-b border-white/5 px-2 py-1">
-                          {cp.relationship || '-'}
-                        </td>
-                        <td className="border-b border-white/5 px-2 py-1">
-                          {cp.interest_level || '-'}
-                        </td>
-                        <td className="border-b border-white/5 px-2 py-1">
-                          {cp.property?.pipeline_stage || '-'}
-                        </td>
-                        <td className="border-b border-white/5 px-2 py-1 text-xs">
-                          {cp.client_rating != null && (
-                            <div className="font-medium">
-                              Rating: {cp.client_rating}/5
+                          {o.updated_at && (
+                            <div>
+                              Updated: {formatDateTime(o.updated_at)}
                             </div>
-                          )}
-                          {cp.client_feedback && (
-                            <div className="text-slate-100 whitespace-pre-wrap">
-                              {cp.client_feedback}
-                            </div>
-                          )}
-                          {cp.client_rating == null && !cp.client_feedback && (
-                            <span className="text-slate-500">
-                              No feedback yet
-                            </span>
-                          )}
-                        </td>
-                        <td className="border-b border-white/5 px-2 py-1 text-right">
-                          {cp.property
-                            ? formatPrice(cp.property.list_price)
-                            : '-'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-
-          {/* Messages to client portal */}
-          <Card className="space-y-3">
-            <h2 className="text-lg font-semibold text-white">
-              Messages to client portal
-            </h2>
-
-            <form
-              onSubmit={handleAddPortalMessage}
-              className="space-y-3 text-sm"
-            >
-              {newMessageError && (
-                <p className="text-sm text-red-300">{newMessageError}</p>
-              )}
-
-              <div>
-                <label className="block text-xs font-medium mb-1 text-slate-200">
-                  Title (optional)
-                </label>
-                <input
-                  type="text"
-                  value={newMessageTitle}
-                  onChange={(e) => setNewMessageTitle(e.target.value)}
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                  placeholder="e.g. This week’s plan, Offer update, etc."
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium mb-1 text-slate-200">
-                  Message body
-                </label>
-                <textarea
-                  value={newMessageBody}
-                  onChange={(e) => setNewMessageBody(e.target.value)}
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                  rows={3}
-                  placeholder="Write a brief update you want the client to see in their portal."
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2 text-xs text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={newMessagePinned}
-                    onChange={(e) => setNewMessagePinned(e.target.checked)}
-                    className="h-3 w-3 rounded border border-white/40 bg-black/60"
-                  />
-                  Mark as important (pinned)
-                </label>
-
-                <Button
-                  type="submit"
-                  disabled={savingMessage}
-                  className="text-xs px-3 py-1.5"
-                >
-                  {savingMessage ? 'Posting…' : 'Post to portal'}
-                </Button>
-              </div>
-            </form>
-
-            {messagesError && (
-              <p className="text-sm text-red-300">
-                Error loading portal messages: {messagesError}
-              </p>
-            )}
-
-            {messagesLoading && (
-              <p className="text-sm text-slate-300">
-                Loading portal messages…
-              </p>
-            )}
-
-            {!messagesLoading && messages.length === 0 && !messagesError && (
-              <p className="text-sm text-slate-300">
-                No messages yet. Use the form above to send updates that show up
-                in the client&apos;s portal Messages page.
-              </p>
-            )}
-
-            {!messagesLoading && messages.length > 0 && (
-              <ul className="space-y-3 text-sm">
-                {messages.map((m) => (
-                  <li
-                    key={m.id}
-                    className={`border rounded-md p-3 ${
-                      m.is_pinned
-                        ? 'border-amber-300 bg-amber-500/10'
-                        : 'border-white/15 bg-black/40'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="text-sm font-semibold text-slate-50 truncate">
-                            {m.title || 'Update for this journey'}
-                          </h3>
-                          {m.is_pinned && (
-                            <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-400/20 px-2 py-0.5 text-[11px] text-amber-100 whitespace-nowrap">
-                              Important
-                            </span>
                           )}
                         </div>
-                        <p className="text-sm text-slate-100 whitespace-pre-wrap">
-                          {m.body}
-                        </p>
-                      </div>
-                    </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
 
-                    <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
-                      <span>{m.author_name || 'You'}</span>
-                      <span>{formatDateTime(m.created_at)}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+        {/* Attached properties */}
+        <Card className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-white">Properties</h2>
+            <Link href="/properties/new">
+              <Button variant="secondary" className="text-xs px-3 py-1.5">
+                + Add new property
+              </Button>
+            </Link>
+          </div>
 
-          {/* Internal notes */}
-          <Card className="space-y-3">
-            <h2 className="text-lg font-semibold text-white">
-              Internal notes
-            </h2>
+          {propsError && (
+            <p className="text-sm text-red-300">
+              Error loading properties: {propsError}
+            </p>
+          )}
 
-            <form onSubmit={handleAddNote} className="space-y-2">
-              {newNoteError && (
-                <p className="text-sm text-red-300">{newNoteError}</p>
-              )}
-              <textarea
-                value={newNote}
-                onChange={(e) => setNewNote(e.target.value)}
-                className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                rows={3}
-                placeholder="Call recap, private notes, details that are for your eyes only."
-              />
+          {/* Attach property form */}
+          <form
+            id="attach-property-form"
+            onSubmit={handleAttachProperty}
+            className="border border-white/10 rounded-md p-3 bg-black/40 text-sm space-y-2"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div>
+                <label className="block text-xs font-medium mb-1 text-slate-200">
+                  Property
+                </label>
+                <select
+                  value={selectedPropertyId}
+                  onChange={(e) => setSelectedPropertyId(e.target.value)}
+                  className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
+                >
+                  <option value="">Select property…</option>
+                  {allProperties.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.address} – {p.city}, {p.state}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1 text-slate-200">
+                  Relationship
+                </label>
+                <select
+                  value={relationship}
+                  onChange={(e) => setRelationship(e.target.value)}
+                  className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
+                >
+                  {RELATIONSHIP_OPTIONS.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1 text-slate-200">
+                  Interest level
+                </label>
+                <select
+                  value={interestLevel}
+                  onChange={(e) => setInterestLevel(e.target.value)}
+                  className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
+                >
+                  {INTEREST_OPTIONS.map((i) => (
+                    <option key={i} value={i}>
+                      {i}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between mt-1">
+              <label className="flex items-center gap-2 text-xs text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={isFavorite}
+                  onChange={(e) => setIsFavorite(e.target.checked)}
+                  className="h-3 w-3 rounded border border-white/40 bg-black/60"
+                />
+                Mark as favorite
+              </label>
+
               <Button
                 type="submit"
-                disabled={savingNote}
-                className="text-sm px-4 py-2"
+                disabled={
+                  addingProperty || propsLoading || allProperties.length === 0
+                }
+                className="text-xs px-3 py-1.5"
               >
-                {savingNote ? 'Saving…' : 'Add internal note'}
+                {addingProperty ? 'Attaching…' : 'Attach property'}
               </Button>
-            </form>
+            </div>
 
-            {notesLoading && (
-              <p className="text-sm text-slate-300">Loading notes…</p>
+            {addPropertyError && (
+              <p className="text-xs text-red-300 mt-1">{addPropertyError}</p>
+            )}
+          </form>
+
+          {propsLoading && (
+            <p className="text-sm text-slate-300">
+              Loading client properties…
+            </p>
+          )}
+
+          {!propsLoading && clientProperties.length === 0 && (
+            <p className="text-sm text-slate-300">
+              No properties attached yet. Use the form above to attach one of
+              your tracked deals.
+            </p>
+          )}
+
+          {!propsLoading && clientProperties.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border border-white/10 bg-black/40">
+              <table className="min-w-full text-xs sm:text-sm">
+                <thead className="bg-white/5 text-slate-300">
+                  <tr>
+                    <th className="border-b border-white/10 px-2 py-1 text-left">
+                      Property
+                    </th>
+                    <th className="border-b border-white/10 px-2 py-1 text-left">
+                      Relationship
+                    </th>
+                    <th className="border-b border-white/10 px-2 py-1 text-left">
+                      Interest
+                    </th>
+                    <th className="border-b border-white/10 px-2 py-1 text-left">
+                      Stage
+                    </th>
+                    <th className="border-b border-white/10 px-2 py-1 text-left">
+                      Client feedback
+                    </th>
+                    <th className="border-b border-white/10 px-2 py-1 text-right">
+                      Price
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clientProperties.map((cp) => (
+                    <tr
+                      key={cp.id}
+                      className="hover:bg-white/5 text-slate-100"
+                    >
+                      <td className="border-b border-white/5 px-2 py-1">
+                        {cp.property ? (
+                          <Link
+                            href={`/properties/${cp.property.id}`}
+                            className="text-[#EBD27A] hover:underline"
+                          >
+                            {cp.property.address}
+                          </Link>
+                        ) : (
+                          <span className="text-slate-500">
+                            (missing property)
+                          </span>
+                        )}
+                        {cp.property && (
+                          <div className="text-[11px] text-slate-400">
+                            {cp.property.city}, {cp.property.state}{' '}
+                            {cp.is_favorite ? ' • ★ favorite' : ''}
+                          </div>
+                        )}
+                      </td>
+                      <td className="border-b border-white/5 px-2 py-1">
+                        {cp.relationship || '-'}
+                      </td>
+                      <td className="border-b border-white/5 px-2 py-1">
+                        {cp.interest_level || '-'}
+                      </td>
+                      <td className="border-b border-white/5 px-2 py-1">
+                        {cp.property?.pipeline_stage || '-'}
+                      </td>
+                      <td className="border-b border-white/5 px-2 py-1 text-xs">
+                        {cp.client_rating != null && (
+                          <div className="font-medium">
+                            Rating: {cp.client_rating}/5
+                          </div>
+                        )}
+                        {cp.client_feedback && (
+                          <div className="text-slate-100 whitespace-pre-wrap">
+                            {cp.client_feedback}
+                          </div>
+                        )}
+                        {cp.client_rating == null && !cp.client_feedback && (
+                          <span className="text-slate-500">
+                            No feedback yet
+                          </span>
+                        )}
+                      </td>
+                      <td className="border-b border-white/5 px-2 py-1 text-right">
+                        {cp.property
+                          ? formatPrice(cp.property.list_price)
+                          : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        {/* Messages to client portal */}
+        <Card className="space-y-3">
+          <h2 className="text-lg font-semibold text-white">
+            Messages to client portal
+          </h2>
+
+          <form onSubmit={handleAddPortalMessage} className="space-y-3 text-sm">
+            {newMessageError && (
+              <p className="text-sm text-red-300">{newMessageError}</p>
             )}
 
-            {notesError && (
-              <p className="text-sm text-red-300">
-                Error loading notes: {notesError}
-              </p>
-            )}
+            <div>
+              <label className="block text-xs font-medium mb-1 text-slate-200">
+                Title (optional)
+              </label>
+              <input
+                type="text"
+                value={newMessageTitle}
+                onChange={(e) => setNewMessageTitle(e.target.value)}
+                className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                placeholder="e.g. This week’s plan, Offer update, etc."
+              />
+            </div>
 
-            {!notesLoading && notes.length === 0 && (
-              <p className="text-sm text-slate-300">
-                No notes yet. Add your first note above.
-              </p>
-            )}
+            <div>
+              <label className="block text-xs font-medium mb-1 text-slate-200">
+                Message body
+              </label>
+              <textarea
+                value={newMessageBody}
+                onChange={(e) => setNewMessageBody(e.target.value)}
+                className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                rows={3}
+                placeholder="Write a brief update you want the client to see in their portal."
+              />
+            </div>
 
-            {!notesLoading && notes.length > 0 && (
-              <ul className="space-y-3 text-sm">
-                {notes.map((note) => (
-                  <li
-                    key={note.id}
-                    className="border border-white/15 rounded-md p-3 bg-black/40 text-slate-100"
-                  >
-                    <p className="whitespace-pre-wrap mb-1">{note.body}</p>
-                    <div className="text-[11px] text-slate-400 flex justify-between">
-                      <span>{note.author || 'Unknown'}</span>
-                      <span>
-                        {new Date(note.created_at).toLocaleString()}
-                      </span>
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 text-xs text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={newMessagePinned}
+                  onChange={(e) => setNewMessagePinned(e.target.checked)}
+                  className="h-3 w-3 rounded border border-white/40 bg-black/60"
+                />
+                Mark as important (pinned)
+              </label>
+
+              <Button
+                type="submit"
+                disabled={savingMessage}
+                className="text-xs px-3 py-1.5"
+              >
+                {savingMessage ? 'Posting…' : 'Post to portal'}
+              </Button>
+            </div>
+          </form>
+
+          {messagesError && (
+            <p className="text-sm text-red-300">
+              Error loading portal messages: {messagesError}
+            </p>
+          )}
+
+          {messagesLoading && (
+            <p className="text-sm text-slate-300">
+              Loading portal messages…
+            </p>
+          )}
+
+          {!messagesLoading && messages.length === 0 && !messagesError && (
+            <p className="text-sm text-slate-300">
+              No messages yet. Use the form above to send updates that show up
+              in the client&apos;s portal Messages page.
+            </p>
+          )}
+
+          {!messagesLoading && messages.length > 0 && (
+            <ul className="space-y-3 text-sm">
+              {messages.map((m) => (
+                <li
+                  key={m.id}
+                  className={`border rounded-md p-3 ${
+                    m.is_pinned
+                      ? 'border-amber-300 bg-amber-500/10'
+                      : 'border-white/15 bg-black/40'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="text-sm font-semibold text-slate-50 truncate">
+                          {m.title || 'Update for this journey'}
+                        </h3>
+                        {m.is_pinned && (
+                          <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-400/20 px-2 py-0.5 text-[11px] text-amber-100 whitespace-nowrap">
+                            Important
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-slate-100 whitespace-pre-wrap">
+                        {m.body}
+                      </p>
                     </div>
-                  </li>
-                ))}
-              </ul>
+                  </div>
+
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
+                    <span>{m.author_name || 'You'}</span>
+                    <span>{formatDateTime(m.created_at)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        {/* Internal notes */}
+        <Card className="space-y-3">
+          <h2 className="text-lg font-semibold text-white">
+            Internal notes
+          </h2>
+
+          <form onSubmit={handleAddNote} className="space-y-2">
+            {newNoteError && (
+              <p className="text-sm text-red-300">{newNoteError}</p>
             )}
-          </Card>
-        </>
-      )}
-    </div>
+            <textarea
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+              rows={3}
+              placeholder="Call recap, private notes, details that are for your eyes only."
+            />
+            <Button
+              type="submit"
+              disabled={savingNote}
+              className="text-sm px-4 py-2"
+            >
+              {savingNote ? 'Saving…' : 'Add internal note'}
+            </Button>
+          </form>
+
+          {notesLoading && (
+            <p className="text-sm text-slate-300">Loading notes…</p>
+          )}
+
+          {notesError && (
+            <p className="text-sm text-red-300">
+              Error loading notes: {notesError}
+            </p>
+          )}
+
+          {!notesLoading && notes.length === 0 && (
+            <p className="text-sm text-slate-300">
+              No notes yet. Add your first note above.
+            </p>
+          )}
+
+          {!notesLoading && notes.length > 0 && (
+            <ul className="space-y-3 text-sm">
+              {notes.map((note) => (
+                <li
+                  key={note.id}
+                  className="border border-white/15 rounded-md p-3 bg-black/40 text-slate-100"
+                >
+                  <p className="whitespace-pre-wrap mb-1">{note.body}</p>
+                  <div className="text-[11px] text-slate-400 flex justify-between">
+                    <span>{note.author || 'Unknown'}</span>
+                    <span>
+                      {new Date(note.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </>
+    )}
+  </div>
   );
 }
-
