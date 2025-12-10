@@ -13,6 +13,7 @@ const navLinks = [
   { href: '/pipeline', label: 'Pipeline' },
   { href: '/tours', label: 'Tours' },
   { href: '/offers', label: 'Offers' },
+  { href: '/tools', label: 'Tools' },        // 👈 NEW
   { href: '/market-radar', label: 'Market Radar' },
   { href: '/analytics', label: 'Analytics' },
   { href: '/settings', label: 'Settings' },
@@ -183,3 +184,4 @@ export function TopNav() {
     </>
   );
 }
+
