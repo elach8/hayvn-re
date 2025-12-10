@@ -1,7 +1,7 @@
+// app/tools/listing-readiness/page.tsx
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -40,9 +40,6 @@ const DEFAULT_FORM: FormState = {
 };
 
 export default function ListingReadinessPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
   const [agent, setAgent] = useState<CurrentAgent | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -51,10 +48,10 @@ export default function ListingReadinessPage() {
 
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
 
-  // optional: accept ?client_id= & ?mls_listing_id= in the future
-  const clientId = searchParams.get('client_id');
-  const mlsListingId = searchParams.get('mls_listing_id');
-  const propertyId = searchParams.get('property_id');
+  // For now we’re not wiring client/listing query params.
+  const clientId: string | null = null;
+  const mlsListingId: string | null = null;
+  const propertyId: string | null = null;
 
   useEffect(() => {
     const run = async () => {
@@ -83,6 +80,7 @@ export default function ListingReadinessPage() {
         .single();
 
       if (agentError || !agentRow) {
+        console.error('Agent load error for listing readiness:', agentError);
         setError('No agent record found for this user.');
         setLoading(false);
         return;
@@ -138,9 +136,9 @@ export default function ListingReadinessPage() {
         .from('listing_readiness_scores')
         .insert({
           agent_id: agent.id,
-          client_id: clientId || null,
-          property_id: propertyId || null,
-          mls_listing_id: mlsListingId || null,
+          client_id: clientId,
+          property_id: propertyId,
+          mls_listing_id: mlsListingId,
           scenario: form.scenario,
           address_line: form.address_line || null,
           city: form.city || null,
@@ -200,7 +198,7 @@ export default function ListingReadinessPage() {
           </Link>
         </header>
 
-        {/* Agent + status / summary card */}
+        {/* Agent + score summary */}
         <section className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)]">
           <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-xs text-slate-200">
             {loading && <p>Checking your agent profile…</p>}
@@ -324,7 +322,7 @@ export default function ListingReadinessPage() {
                     <div className="flex gap-2">
                       <input
                         type="text"
-                        className="w-16 rounded-lg border border:white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
+                        className="w-16 rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
                         placeholder="CA"
                         value={form.state}
                         onChange={(e) => handleChange('state', e.target.value)}
@@ -361,7 +359,8 @@ export default function ListingReadinessPage() {
                   {
                     key: 'presentation_score' as const,
                     label: 'Presentation & photos',
-                    helper: 'Staging, photography, curb appeal, and online first impression.',
+                    helper:
+                      'Staging, photography, curb appeal, and online first impression.',
                   },
                   {
                     key: 'market_fit_score' as const,
