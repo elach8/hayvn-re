@@ -1,794 +1,474 @@
-// app/tools/listing-readiness/page.tsx
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabaseClient';
 
-type ConditionLevel = 'needs_work' | 'average' | 'updated' | 'fully_renovated';
-type PresentationLevel = 'poor' | 'okay' | 'good' | 'excellent';
-type CompetitionLevel = 'heavy' | 'normal' | 'light';
-type MotivationLevel = 'low' | 'medium' | 'high';
+type Scenario = 'pre_listing' | 'active_listing';
+
+type CurrentAgent = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+};
 
 type FormState = {
-  address: string;
+  scenario: Scenario;
+  address_line: string;
   city: string;
   state: string;
-  priceTarget: string;
-
-  beds: string;
-  baths: string;
-  sqft: string;
-  yearBuilt: string;
-
-  condition: ConditionLevel;
-  hasMajorIssues: boolean;
-  recentRenovations: boolean;
-
-  presentation: PresentationLevel;
-  hasStaging: boolean;
-  hasProPhotos: boolean;
-  isCluttered: boolean;
-
-  competition: CompetitionLevel;
-  pricingVsComps: 'below' | 'inline' | 'above' | 'unknown';
-  uniqueness: 'standard' | 'some_unique' | 'very_unique';
-
-  sellerMotivation: MotivationLevel;
-  sellerFlexibility: 'rigid' | 'normal' | 'flexible';
-  occupancy: 'owner' | 'tenant' | 'vacant';
-
+  postal_code: string;
+  condition_score: number;
+  presentation_score: number;
+  market_fit_score: number;
+  logistics_score: number;
   notes: string;
 };
 
-type ScoreBreakdown = {
-  conditionScore: number;
-  presentationScore: number;
-  marketScore: number;
-  logisticsScore: number;
-  total: number;
-  bandLabel: string;
-  bandDescription: string;
-};
-
-const initialForm: FormState = {
-  address: '',
+const DEFAULT_FORM: FormState = {
+  scenario: 'pre_listing',
+  address_line: '',
   city: '',
   state: '',
-  priceTarget: '',
-
-  beds: '',
-  baths: '',
-  sqft: '',
-  yearBuilt: '',
-
-  condition: 'average',
-  hasMajorIssues: false,
-  recentRenovations: false,
-
-  presentation: 'good',
-  hasStaging: false,
-  hasProPhotos: false,
-  isCluttered: false,
-
-  competition: 'normal',
-  pricingVsComps: 'inline',
-  uniqueness: 'standard',
-
-  sellerMotivation: 'medium',
-  sellerFlexibility: 'normal',
-  occupancy: 'owner',
-
+  postal_code: '',
+  condition_score: 3,
+  presentation_score: 3,
+  market_fit_score: 3,
+  logistics_score: 3,
   notes: '',
 };
 
-function computeScore(form: FormState): ScoreBreakdown {
-  // Condition (0–25)
-  let conditionScore = 10;
-  switch (form.condition) {
-    case 'needs_work':
-      conditionScore = 5;
-      break;
-    case 'average':
-      conditionScore = 12;
-      break;
-    case 'updated':
-      conditionScore = 18;
-      break;
-    case 'fully_renovated':
-      conditionScore = 22;
-      break;
-  }
-  if (form.recentRenovations) conditionScore += 2;
-  if (form.hasMajorIssues) conditionScore -= 4;
-  conditionScore = Math.max(0, Math.min(25, conditionScore));
-
-  // Presentation (0–25)
-  let presentationScore = 10;
-  switch (form.presentation) {
-    case 'poor':
-      presentationScore = 6;
-      break;
-    case 'okay':
-      presentationScore = 12;
-      break;
-    case 'good':
-      presentationScore = 18;
-      break;
-    case 'excellent':
-      presentationScore = 22;
-      break;
-  }
-  if (form.hasStaging) presentationScore += 2;
-  if (form.hasProPhotos) presentationScore += 2;
-  if (form.isCluttered) presentationScore -= 4;
-  presentationScore = Math.max(0, Math.min(25, presentationScore));
-
-  // Market fit (0–25)
-  let marketScore = 12;
-  switch (form.competition) {
-    case 'heavy':
-      marketScore = 8;
-      break;
-    case 'normal':
-      marketScore = 14;
-      break;
-    case 'light':
-      marketScore = 18;
-      break;
-  }
-  switch (form.pricingVsComps) {
-    case 'below':
-      marketScore += 4;
-      break;
-    case 'inline':
-      marketScore += 2;
-      break;
-    case 'above':
-      marketScore -= 3;
-      break;
-    case 'unknown':
-      marketScore -= 1;
-      break;
-  }
-  if (form.uniqueness === 'some_unique') marketScore += 1;
-  if (form.uniqueness === 'very_unique') marketScore += 3;
-  marketScore = Math.max(0, Math.min(25, marketScore));
-
-  // Logistics / seller (0–25)
-  let logisticsScore = 12;
-  switch (form.sellerMotivation) {
-    case 'low':
-      logisticsScore = 8;
-      break;
-    case 'medium':
-      logisticsScore = 12;
-      break;
-    case 'high':
-      logisticsScore = 16;
-      break;
-  }
-  switch (form.sellerFlexibility) {
-    case 'rigid':
-      logisticsScore -= 3;
-      break;
-    case 'normal':
-      logisticsScore += 0;
-      break;
-    case 'flexible':
-      logisticsScore += 3;
-      break;
-  }
-  if (form.occupancy === 'vacant') logisticsScore += 3;
-  if (form.occupancy === 'tenant') logisticsScore -= 2;
-  logisticsScore = Math.max(0, Math.min(25, logisticsScore));
-
-  const total = conditionScore + presentationScore + marketScore + logisticsScore;
-
-  let bandLabel = 'Needs Work';
-  let bandDescription =
-    'This listing needs meaningful prep before it will compete well in the market. Focus on repairs, presentation, and pricing clarity.';
-
-  if (total >= 70 && total < 85) {
-    bandLabel = 'Show-Ready';
-    bandDescription =
-      'The home is generally ready to show. A few focused improvements can help it stand out and support stronger pricing.';
-  } else if (total >= 85) {
-    bandLabel = 'Launch-Ready';
-    bandDescription =
-      'This listing is in strong shape across condition, presentation, market fit, and logistics. You’re well-positioned for a confident launch.';
-  } else if (total >= 55 && total < 70) {
-    bandLabel = 'Almost Ready';
-    bandDescription =
-      'Key pieces are in place, but there are still some gaps that could impact days-on-market or final price. Use this score to guide your prep plan.';
-  }
-
-  return {
-    conditionScore,
-    presentationScore,
-    marketScore,
-    logisticsScore,
-    total,
-    bandLabel,
-    bandDescription,
-  };
-}
-
 export default function ListingReadinessPage() {
-  const [form, setForm] = useState<FormState>(initialForm);
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const scores = useMemo(() => computeScore(form), [form]);
+  const [agent, setAgent] = useState<CurrentAgent | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  const handleChange = <K extends keyof FormState>(
-    key: K,
-    value: FormState[K],
-  ) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+  const [form, setForm] = useState<FormState>(DEFAULT_FORM);
+
+  // optional: accept ?client_id= & ?mls_listing_id= in the future
+  const clientId = searchParams.get('client_id');
+  const mlsListingId = searchParams.get('mls_listing_id');
+  const propertyId = searchParams.get('property_id');
+
+  useEffect(() => {
+    const run = async () => {
+      setLoading(true);
+      setError(null);
+      setSuccess(null);
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError || !session) {
+        setError('Please sign in to use Listing Readiness Score.');
+        setLoading(false);
+        return;
+      }
+
+      const user = session.user;
+
+      // Load agent record
+      const { data: agentRow, error: agentError } = await supabase
+        .from('agents')
+        .select('id, full_name, email')
+        .eq('id', user.id)
+        .single();
+
+      if (agentError || !agentRow) {
+        setError('No agent record found for this user.');
+        setLoading(false);
+        return;
+      }
+
+      setAgent({
+        id: agentRow.id as string,
+        full_name: (agentRow.full_name as string | null) ?? null,
+        email: (agentRow.email as string | null) ?? null,
+      });
+
+      setLoading(false);
+    };
+
+    run();
+  }, []);
+
+  const handleChange = (field: keyof FormState, value: string | number) => {
+    setForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
   };
 
-  const handleReset = () => {
-    setForm(initialForm);
-  };
+  const overallScore = useMemo(() => {
+    const parts = [
+      form.condition_score,
+      form.presentation_score,
+      form.market_fit_score,
+      form.logistics_score,
+    ];
 
-  const handlePrint = () => {
-    if (typeof window !== 'undefined') {
-      window.print();
+    const avg = parts.reduce((sum, v) => sum + v, 0) / parts.length;
+    // convert 1–5 scale → 0–100
+    return Math.round((avg / 5) * 100);
+  }, [
+    form.condition_score,
+    form.presentation_score,
+    form.market_fit_score,
+    form.logistics_score,
+  ]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agent) return;
+
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const { error: insertError } = await supabase
+        .from('listing_readiness_scores')
+        .insert({
+          agent_id: agent.id,
+          client_id: clientId || null,
+          property_id: propertyId || null,
+          mls_listing_id: mlsListingId || null,
+          scenario: form.scenario,
+          address_line: form.address_line || null,
+          city: form.city || null,
+          state: form.state || null,
+          postal_code: form.postal_code || null,
+          condition_score: form.condition_score,
+          presentation_score: form.presentation_score,
+          market_fit_score: form.market_fit_score,
+          logistics_score: form.logistics_score,
+          overall_score: overallScore,
+          notes: form.notes || null,
+          raw_inputs: {
+            scale: '1-5',
+            computed_from: ['condition', 'presentation', 'market_fit', 'logistics'],
+          },
+        });
+
+      if (insertError) {
+        console.error('Error saving listing readiness score:', insertError);
+        setError(insertError.message || 'Could not save score.');
+        setSaving(false);
+        return;
+      }
+
+      setSuccess('Listing readiness score saved.');
+      setSaving(false);
+    } catch (err: any) {
+      console.error('Error saving listing readiness score:', err);
+      setError(err?.message ?? 'Could not save score.');
+      setSaving(false);
     }
   };
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
-      <div className="mx-auto max-w-5xl px-4 py-6 space-y-5">
+      <div className="mx-auto max-w-4xl px-4 py-6 space-y-5">
         {/* Header */}
-        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 print:flex-row print:items-center print:justify-between">
+        <header className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-50">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+              Tools / Listing Prep
+            </p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-50">
               Listing Readiness Score
             </h1>
-            <p className="text-sm text-slate-300 max-w-2xl">
-              A structured way to score how ready a listing is to hit the
-              market across condition, presentation, market fit, and logistics.
+            <p className="mt-1 text-sm text-slate-300 max-w-xl">
+              Use this with a seller before or after going live. Score condition,
+              presentation, market fit, and logistics, then save the result to come
+              back to later.
             </p>
           </div>
-          <div className="flex flex-col items-end gap-2 text-xs text-slate-400">
-            <div className="hidden sm:block">
-              Built inside Hayvn-RE for agent-facing prep.
-            </div>
-            <div className="flex gap-2 print:hidden">
-              <Link
-                href="/clients"
-                className="inline-flex items-center justify-center rounded-lg border border-white/20 bg-black/50 px-3 py-1.5 text-[11px] text-slate-100 hover:bg-white/10"
-              >
-                ← Back to clients
-              </Link>
-              <button
-                type="button"
-                onClick={handlePrint}
-                className="inline-flex items-center justify-center rounded-lg bg-[#EBD27A] px-3 py-1.5 text-[11px] font-medium text-black hover:bg-[#f3e497]"
-              >
-                Export / Print summary
-              </button>
-            </div>
-          </div>
+          <Link
+            href="/tools"
+            className="text-xs text-slate-400 hover:text-slate-200 hover:underline"
+          >
+            ← Back to tools
+          </Link>
         </header>
 
-        {/* Score summary card */}
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.4fr)]">
-          <div className="rounded-2xl border border-white/10 bg-black/50 px-4 py-4 space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-[11px] uppercase tracking-wide text-slate-400">
-                  Overall readiness
+        {/* Agent + status / summary card */}
+        <section className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)]">
+          <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-xs text-slate-200">
+            {loading && <p>Checking your agent profile…</p>}
+            {!loading && agent && (
+              <div className="space-y-1.5">
+                <p className="text-[11px] text-slate-400">Signed in as</p>
+                <p className="text-sm font-medium text-slate-50">
+                  {agent.full_name || agent.email || 'Agent'}
                 </p>
-                <div className="flex items-baseline gap-2">
-                  <p className="text-3xl font-semibold text-slate-50">
-                    {scores.total}
-                  </p>
-                  <p className="text-xs text-slate-400">out of 100</p>
-                </div>
-                <p className="text-sm font-medium text-[#EBD27A] mt-1">
-                  {scores.bandLabel}
+                <p className="text-[11px] text-slate-400">
+                  Scores are saved to your account and can be linked to clients or
+                  listings later.
                 </p>
               </div>
-              <div className="hidden sm:flex flex-col items-end text-xs text-slate-400">
-                <p>Condition: {scores.conditionScore}/25</p>
-                <p>Presentation: {scores.presentationScore}/25</p>
-                <p>Market fit: {scores.marketScore}/25</p>
-                <p>Logistics: {scores.logisticsScore}/25</p>
-              </div>
-            </div>
-            <p className="text-xs text-slate-300">{scores.bandDescription}</p>
-            <p className="text-[11px] text-slate-500">
-              This tool is meant to guide the conversation with your seller. You
-              can adjust inputs as the home is improved and re-score over time.
-            </p>
+            )}
+            {!loading && !agent && error && (
+              <p className="text-sm text-red-300">{error}</p>
+            )}
           </div>
 
-          {/* Property summary */}
-          <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4 space-y-3 text-xs">
-            <p className="text-[11px] uppercase tracking-wide text-slate-400">
-              Subject property
-            </p>
-            <div className="space-y-1">
-              <p className="text-sm text-slate-100 font-medium">
-                {form.address || 'Untitled listing'}
-              </p>
-              <p className="text-xs text-slate-400">
-                {[form.city, form.state].filter(Boolean).join(', ') ||
-                  'City / state not set'}
-              </p>
-              <p className="text-xs text-slate-400">
-                {form.beds ? `${form.beds} bd` : '— bd'} •{' '}
-                {form.baths ? `${form.baths} ba` : '— ba'} •{' '}
-                {form.sqft ? `${form.sqft} sq ft` : 'size not set'}
-              </p>
-              <p className="text-xs text-slate-400">
-                Target list price:{' '}
-                <span className="text-slate-100">
-                  {form.priceTarget || 'not set'}
-                </span>
-              </p>
+          <div className="rounded-2xl border border-[#EBD27A]/40 bg-[#EBD27A]/5 px-4 py-3 flex flex-col justify-between">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-[#EBD27A]">
+                  Overall score (preview)
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-slate-50">
+                  {overallScore}
+                  <span className="text-sm text-slate-400"> / 100</span>
+                </p>
+                <p className="mt-1 text-[11px] text-slate-300">
+                  We&apos;ll start with a simple weighted average. Later we can
+                  layer in AI and market context.
+                </p>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={handleReset}
-              className="inline-flex items-center justify-center rounded-lg border border-white/20 bg-black/60 px-3 py-1.5 text-[11px] text-slate-100 hover:bg-white/10 print:hidden"
-            >
-              Reset form
-            </button>
           </div>
         </section>
 
-        {/* Form sections */}
-        <form
-          className="space-y-5 text-sm"
-          onSubmit={(e) => e.preventDefault()}
-        >
-          {/* Basic info */}
-          <section className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4 space-y-3">
-            <header className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-50">
-                  Property basics
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Quick context so you remember which listing this score belongs
-                  to.
-                </p>
-              </div>
-            </header>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  Street address
-                </label>
-                <input
-                  value={form.address}
-                  onChange={(e) => handleChange('address', e.target.value)}
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                  placeholder="123 Main St"
-                />
-              </div>
-              <div className="grid grid-cols-[2fr_1fr] gap-3">
-                <div className="space-y-1">
-                  <label className="block text-[11px] font-medium text-slate-300">
-                    City
-                  </label>
-                  <input
-                    value={form.city}
-                    onChange={(e) => handleChange('city', e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                    placeholder="San Jose"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[11px] font-medium text-slate-300">
-                    State
-                  </label>
-                  <input
-                    value={form.state}
-                    onChange={(e) => handleChange('state', e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                    placeholder="CA"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <label className="block text-[11px] font-medium text-slate-300">
-                    Beds
-                  </label>
-                  <input
-                    value={form.beds}
-                    onChange={(e) => handleChange('beds', e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                    placeholder="3"
-                    inputMode="numeric"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[11px] font-medium text-slate-300">
-                    Baths
-                  </label>
-                  <input
-                    value={form.baths}
-                    onChange={(e) => handleChange('baths', e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                    placeholder="2"
-                    inputMode="numeric"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[11px] font-medium text-slate-300">
-                    Year built
-                  </label>
-                  <input
-                    value={form.yearBuilt}
-                    onChange={(e) => handleChange('yearBuilt', e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                    placeholder="1995"
-                    inputMode="numeric"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  Approx. living area (sq ft)
-                </label>
-                <input
-                  value={form.sqft}
-                  onChange={(e) => handleChange('sqft', e.target.value)}
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                  placeholder="1800"
-                  inputMode="numeric"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300">
-                  Target list price
-                </label>
-                <input
-                  value={form.priceTarget}
-                  onChange={(e) => handleChange('priceTarget', e.target.value)}
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                  placeholder="$1,250,000"
-                />
-              </div>
-            </div>
-          </section>
+        {/* Alerts */}
+        {error && (
+          <div className="rounded-2xl border border-red-500/40 bg-red-950/40 px-4 py-3 text-xs text-red-100">
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="rounded-2xl border border-emerald-500/40 bg-emerald-950/40 px-4 py-3 text-xs text-emerald-100">
+            {success}
+          </div>
+        )}
 
-          {/* Condition */}
-          <section className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4 space-y-3">
-            <header>
-              <h2 className="text-sm font-semibold text-slate-50">
-                Condition & repairs
-              </h2>
-              <p className="text-xs text-slate-400">
-                How move-in ready is the home from a physical condition
-                standpoint?
-              </p>
-            </header>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                  Overall interior condition
+        {/* Form */}
+        {!loading && agent && (
+          <form
+            onSubmit={handleSubmit}
+            className="space-y-4 rounded-2xl border border-white/10 bg-black/40 px-4 py-4"
+          >
+            {/* Scenario + address */}
+            <section className="grid gap-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,2fr)]">
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-slate-200">
+                  Scenario
                 </label>
-                <select
-                  value={form.condition}
-                  onChange={(e) =>
-                    handleChange('condition', e.target.value as ConditionLevel)
-                  }
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                >
-                  <option value="needs_work">Needs significant work</option>
-                  <option value="average">Average / lived-in</option>
-                  <option value="updated">Updated in key areas</option>
-                  <option value="fully_renovated">
-                    Fully renovated / turnkey
-                  </option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                  Recent renovations
-                </label>
-                <div className="flex flex-wrap gap-3 text-xs text-slate-200">
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={form.recentRenovations}
-                      onChange={(e) =>
-                        handleChange('recentRenovations', e.target.checked)
-                      }
-                      className="h-3 w-3 rounded border-white/30 bg-black/40"
-                    />
-                    <span>Significant recent upgrades (kitchen/baths, etc.)</span>
-                  </label>
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={form.hasMajorIssues}
-                      onChange={(e) =>
-                        handleChange('hasMajorIssues', e.target.checked)
-                      }
-                      className="h-3 w-3 rounded border-white/30 bg-black/40"
-                    />
-                    <span>Known major issues (roof, foundation, systems)</span>
-                  </label>
+                <div className="flex flex-col gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => handleChange('scenario', 'pre_listing')}
+                    className={[
+                      'rounded-xl border px-3 py-2 text-left',
+                      form.scenario === 'pre_listing'
+                        ? 'border-[#EBD27A] bg-[#EBD27A]/10 text-slate-50'
+                        : 'border-white/15 bg-black/40 text-slate-300 hover:bg-white/5',
+                    ].join(' ')}
+                  >
+                    <div className="font-medium">Pre-listing (not yet in MLS)</div>
+                    <p className="text-[11px] text-slate-400">
+                      Use this in your listing appointment or while prepping the
+                      property.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleChange('scenario', 'active_listing')}
+                    className={[
+                      'rounded-xl border px-3 py-2 text-left',
+                      form.scenario === 'active_listing'
+                        ? 'border-[#EBD27A] bg-[#EBD27A]/10 text-slate-50'
+                        : 'border-white/15 bg-black/40 text-slate-300 hover:bg-white/5',
+                    ].join(' ')}
+                  >
+                    <div className="font-medium">Already live in MLS</div>
+                    <p className="text-[11px] text-slate-400">
+                      Use this to evaluate how the listing shows and where to
+                      improve.
+                    </p>
+                  </button>
                 </div>
               </div>
-            </div>
-          </section>
 
-          {/* Presentation */}
-          <section className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4 space-y-3">
-            <header>
-              <h2 className="text-sm font-semibold text-slate-50">
-                Presentation & marketing
-              </h2>
-              <p className="text-xs text-slate-400">
-                How the property will show in photos, online, and at in-person
-                showings.
-              </p>
-            </header>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                  Current presentation level
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-slate-200">
+                  Property address (snapshot)
                 </label>
-                <select
-                  value={form.presentation}
-                  onChange={(e) =>
-                    handleChange(
-                      'presentation',
-                      e.target.value as PresentationLevel,
-                    )
-                  }
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                >
-                  <option value="poor">Cluttered / not show-ready</option>
-                  <option value="okay">Generally clean but basic</option>
-                  <option value="good">Show-ready with light styling</option>
-                  <option value="excellent">
-                    Fully staged / magazine-ready
-                  </option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                  Marketing prep
-                </label>
-                <div className="flex flex-col gap-2 text-xs text-slate-200">
-                  <label className="inline-flex items-center gap-2">
+                <div className="space-y-2 text-xs">
+                  <input
+                    type="text"
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
+                    placeholder="123 Main St"
+                    value={form.address_line}
+                    onChange={(e) => handleChange('address_line', e.target.value)}
+                  />
+                  <div className="grid grid-cols-2 gap-2">
                     <input
-                      type="checkbox"
-                      checked={form.hasStaging}
-                      onChange={(e) =>
-                        handleChange('hasStaging', e.target.checked)
-                      }
-                      className="h-3 w-3 rounded border-white/30 bg-black/40"
+                      type="text"
+                      className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
+                      placeholder="City"
+                      value={form.city}
+                      onChange={(e) => handleChange('city', e.target.value)}
                     />
-                    <span>Professional staging (full or partial)</span>
-                  </label>
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={form.hasProPhotos}
-                      onChange={(e) =>
-                        handleChange('hasProPhotos', e.target.checked)
-                      }
-                      className="h-3 w-3 rounded border-white/30 bg-black/40"
-                    />
-                    <span>Professional photography / media</span>
-                  </label>
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={form.isCluttered}
-                      onChange={(e) =>
-                        handleChange('isCluttered', e.target.checked)
-                      }
-                      className="h-3 w-3 rounded border-white/30 bg-black/40"
-                    />
-                    <span>Home still feels cluttered or personalized</span>
-                  </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        className="w-16 rounded-lg border border:white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
+                        placeholder="CA"
+                        value={form.state}
+                        onChange={(e) => handleChange('state', e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        className="flex-1 rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
+                        placeholder="Zip"
+                        value={form.postal_code}
+                        onChange={(e) =>
+                          handleChange('postal_code', e.target.value)
+                        }
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    This is stored with the score so it doesn&apos;t change even if
+                    your property record does.
+                  </p>
                 </div>
               </div>
-            </div>
-          </section>
+            </section>
 
-          {/* Market fit */}
-          <section className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4 space-y-3">
-            <header>
-              <h2 className="text-sm font-semibold text-slate-50">
-                Market fit & pricing
-              </h2>
-              <p className="text-xs text-slate-400">
-                How this property is positioned relative to current demand and
-                competition.
-              </p>
-            </header>
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                  Competition level in this segment
-                </label>
-                <select
-                  value={form.competition}
-                  onChange={(e) =>
-                    handleChange(
-                      'competition',
-                      e.target.value as CompetitionLevel,
-                    )
-                  }
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
+            {/* Scoring sliders */}
+            <section className="grid gap-3 md:grid-cols-2">
+              {(
+                [
+                  {
+                    key: 'condition_score' as const,
+                    label: 'Condition & repairs',
+                    helper:
+                      'Deferred maintenance, obvious repairs, and inspection landmines.',
+                  },
+                  {
+                    key: 'presentation_score' as const,
+                    label: 'Presentation & photos',
+                    helper: 'Staging, photography, curb appeal, and online first impression.',
+                  },
+                  {
+                    key: 'market_fit_score' as const,
+                    label: 'Market fit & pricing story',
+                    helper:
+                      'How well the home fits current demand at this price point.',
+                  },
+                  {
+                    key: 'logistics_score' as const,
+                    label: 'Seller logistics & friction',
+                    helper:
+                      'Showing flexibility, pets, tenants, timelines, and decision-making.',
+                  },
+                ] satisfies {
+                  key: keyof Pick<
+                    FormState,
+                    | 'condition_score'
+                    | 'presentation_score'
+                    | 'market_fit_score'
+                    | 'logistics_score'
+                  >;
+                  label: string;
+                  helper: string;
+                }[]
+              ).map((item) => (
+                <div
+                  key={item.key}
+                  className="rounded-xl border border-white/10 bg-black/40 px-3 py-3 text-xs"
                 >
-                  <option value="heavy">
-                    Many similar listings on the market
-                  </option>
-                  <option value="normal">
-                    Normal number of similar listings
-                  </option>
-                  <option value="light">
-                    Very few comparable options available
-                  </option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                  Pricing vs recent comps
-                </label>
-                <select
-                  value={form.pricingVsComps}
-                  onChange={(e) =>
-                    handleChange(
-                      'pricingVsComps',
-                      e.target.value as FormState['pricingVsComps'],
-                    )
-                  }
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                >
-                  <option value="unknown">Still determining</option>
-                  <option value="below">
-                    Below similar recent sales/actives
-                  </option>
-                  <option value="inline">
-                    Roughly in line with similar sales
-                  </option>
-                  <option value="above">
-                    Above what similar properties are fetching
-                  </option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                  How unique is this home?
-                </label>
-                <select
-                  value={form.uniqueness}
-                  onChange={(e) =>
-                    handleChange(
-                      'uniqueness',
-                      e.target.value as FormState['uniqueness'],
-                    )
-                  }
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                >
-                  <option value="standard">
-                    Pretty standard for the area
-                  </option>
-                  <option value="some_unique">
-                    Some differentiators (lot, layout, style)
-                  </option>
-                  <option value="very_unique">
-                    Very unique / scarce product in this market
-                  </option>
-                </select>
-              </div>
-            </div>
-          </section>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <div>
+                      <p className="font-medium text-slate-50">{item.label}</p>
+                      <p className="text-[11px] text-slate-400">{item.helper}</p>
+                    </div>
+                    <div className="text-right text-[11px] text-slate-300">
+                      <span className="text-slate-400">Score:</span>{' '}
+                      <span className="font-semibold text-slate-50">
+                        {form[item.key]}
+                      </span>
+                      <span className="text-slate-400"> / 5</span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={5}
+                    step={1}
+                    value={form[item.key]}
+                    onChange={(e) =>
+                      handleChange(item.key, Number(e.target.value))
+                    }
+                    className="w-full"
+                  />
+                  <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+                    <span>Needs work</span>
+                    <span>Strong</span>
+                  </div>
+                </div>
+              ))}
+            </section>
 
-          {/* Logistics */}
-          <section className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4 space-y-3">
-            <header>
-              <h2 className="text-sm font-semibold text-slate-50">
-                Seller logistics & momentum
-              </h2>
-              <p className="text-xs text-slate-400">
-                How easy it will be to show the home and move a ready buyer
-                through the process.
-              </p>
-            </header>
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                  Seller motivation
-                </label>
-                <select
-                  value={form.sellerMotivation}
-                  onChange={(e) =>
-                    handleChange(
-                      'sellerMotivation',
-                      e.target.value as MotivationLevel,
-                    )
-                  }
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                >
-                  <option value="low">
-                    Low — casual / testing the market
-                  </option>
-                  <option value="medium">Medium — wants to move</option>
-                  <option value="high">
-                    High — time sensitive or committed
-                  </option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                  Seller flexibility
-                </label>
-                <select
-                  value={form.sellerFlexibility}
-                  onChange={(e) =>
-                    handleChange(
-                      'sellerFlexibility',
-                      e.target.value as FormState['sellerFlexibility'],
-                    )
-                  }
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                >
-                  <option value="rigid">
-                    Rigid — limited times, narrow terms
-                  </option>
-                  <option value="normal">Normal flexibility</option>
-                  <option value="flexible">
-                    Flexible — easy showings & terms
-                  </option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                  Occupancy
-                </label>
-                <select
-                  value={form.occupancy}
-                  onChange={(e) =>
-                    handleChange(
-                      'occupancy',
-                      e.target.value as FormState['occupancy'],
-                    )
-                  }
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-                >
-                  <option value="owner">Owner-occupied</option>
-                  <option value="tenant">Tenant-occupied</option>
-                  <option value="vacant">Vacant</option>
-                </select>
-              </div>
-            </div>
-          </section>
+            {/* Notes + actions */}
+            <section className="space-y-2">
+              <label className="block text-xs font-medium text-slate-200">
+                Notes for yourself / seller
+              </label>
+              <textarea
+                rows={4}
+                className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
+                placeholder="Key upgrades to recommend, risks to flag, and how you'll frame the property to the market."
+                value={form.notes}
+                onChange={(e) => handleChange('notes', e.target.value)}
+              />
+            </section>
 
-          {/* Notes */}
-          <section className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4 space-y-3">
-            <header>
-              <h2 className="text-sm font-semibold text-slate-50">
-                Notes for your seller
-              </h2>
-              <p className="text-xs text-slate-400">
-                Capture the story behind this score or the key steps you&apos;ll
-                recommend next.
+            <section className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2 border-t border-white/10">
+              <p className="text-[11px] text-slate-500 max-w-md">
+                This saves a snapshot of your score and address. Later we can add
+                history, export, and AI recommendations.
               </p>
-            </header>
-            <textarea
-              value={form.notes}
-              onChange={(e) => handleChange('notes', e.target.value)}
-              rows={4}
-              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#EBD27A]"
-              placeholder="Example: Focus on decluttering, minor paint touch-ups in living room, and refreshing front landscaping before photos. Pricing feels in line with recent sales on Oak St if we bring presentation up one notch."
-            />
-          </section>
-        </form>
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForm(DEFAULT_FORM);
+                    setSuccess(null);
+                    setError(null);
+                  }}
+                  className="rounded-lg border border-white/15 bg-black/40 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
+                  disabled={saving}
+                >
+                  Reset
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="rounded-lg border border-[#EBD27A] bg-[#EBD27A] px-4 py-1.5 text-xs font-medium text-black hover:bg-[#f3e497] disabled:opacity-60"
+                >
+                  {saving ? 'Saving…' : 'Save score'}
+                </button>
+              </div>
+            </section>
+          </form>
+        )}
       </div>
     </main>
   );
 }
+
 
