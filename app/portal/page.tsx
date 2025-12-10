@@ -28,11 +28,20 @@ type Journey = {
   client: JourneyClient;
 };
 
+type PortalSummary = {
+  savedHomes: number;
+  favoriteHomes: number;
+  upcomingTours: number;
+  offers: number;
+  unreadMessages: number;
+};
+
 type PortalState = {
   loading: boolean;
   error: string | null;
   portalUser: PortalUser | null;
   journeys: Journey[];
+  summary: PortalSummary;
 };
 
 const PORTAL_LINKS = [
@@ -44,6 +53,14 @@ const PORTAL_LINKS = [
   { href: '/portal/messages', label: 'Messages' },
 ];
 
+const INITIAL_SUMMARY: PortalSummary = {
+  savedHomes: 0,
+  favoriteHomes: 0,
+  upcomingTours: 0,
+  offers: 0,
+  unreadMessages: 0,
+};
+
 export default function PortalDashboardPage() {
   const router = useRouter();
   const [state, setState] = useState<PortalState>({
@@ -51,12 +68,17 @@ export default function PortalDashboardPage() {
     error: null,
     portalUser: null,
     journeys: [],
+    summary: INITIAL_SUMMARY,
   });
 
   useEffect(() => {
     const run = async () => {
       try {
-        setState((prev) => ({ ...prev, loading: true, error: null }));
+        setState((prev) => ({
+          ...prev,
+          loading: true,
+          error: null,
+        }));
 
         // 1) Check auth
         const {
@@ -72,6 +94,7 @@ export default function PortalDashboardPage() {
             error: 'Please sign in to view your journeys.',
             portalUser: null,
             journeys: [],
+            summary: INITIAL_SUMMARY,
           });
           return;
         }
@@ -86,6 +109,7 @@ export default function PortalDashboardPage() {
               'We could not determine your email address. Please contact your agent.',
             portalUser: null,
             journeys: [],
+            summary: INITIAL_SUMMARY,
           });
           return;
         }
@@ -99,7 +123,7 @@ export default function PortalDashboardPage() {
           email: (user.email ?? null) as string | null,
         };
 
-        // 2) Simple mapping: any client whose email matches your login email
+        // 2) Map login email → client journeys
         const { data: clientRows, error: clientError } = await supabase
           .from('clients')
           .select(
@@ -112,7 +136,7 @@ export default function PortalDashboardPage() {
             budget_min,
             budget_max,
             email
-          `
+          `,
           )
           .eq('email', email)
           .order('created_at', { ascending: true });
@@ -133,11 +157,68 @@ export default function PortalDashboardPage() {
           },
         }));
 
+        const clientIds = journeys.map((j) => j.client.id);
+        let summary: PortalSummary = { ...INITIAL_SUMMARY };
+
+        // 3) Lightweight summary counts (best-effort, non-fatal if they fail)
+        if (clientIds.length > 0) {
+          try {
+            const [
+              cpAll,
+              cpFav,
+              toursRes,
+              offersRes,
+              messagesRes,
+            ] = await Promise.all([
+              // All client_properties for these journeys
+              supabase
+                .from('client_properties')
+                .select('id', { count: 'exact', head: true })
+                .in('client_id', clientIds),
+              // Favorites
+              supabase
+                .from('client_properties')
+                .select('id', { count: 'exact', head: true })
+                .in('client_id', clientIds)
+                .eq('is_favorite', true),
+              // Upcoming tours (assuming tours table with client_id + scheduled_for)
+              supabase
+                .from('tours')
+                .select('id', { count: 'exact', head: true })
+                .in('client_id', clientIds)
+                .gte('scheduled_for', new Date().toISOString()),
+              // Offers
+              supabase
+                .from('offers')
+                .select('id', { count: 'exact', head: true })
+                .in('client_id', clientIds),
+              // Unread portal messages (assuming portal_messages + is_read_client)
+              supabase
+                .from('portal_messages')
+                .select('id', { count: 'exact', head: true })
+                .in('client_id', clientIds)
+                .eq('is_read_client', false),
+            ]);
+
+            summary = {
+              savedHomes: cpAll.count ?? 0,
+              favoriteHomes: cpFav.count ?? 0,
+              upcomingTours: toursRes.count ?? 0,
+              offers: offersRes.count ?? 0,
+              unreadMessages: messagesRes.count ?? 0,
+            };
+          } catch (summaryErr) {
+            console.error('Portal summary error (non-fatal):', summaryErr);
+            // Keep summary at INITIAL_SUMMARY if anything fails
+          }
+        }
+
         setState({
           loading: false,
           error: null,
           portalUser,
           journeys,
+          summary,
         });
       } catch (err: any) {
         console.error('Portal dashboard error:', err);
@@ -152,7 +233,7 @@ export default function PortalDashboardPage() {
     run();
   }, []);
 
-  const { loading, error, portalUser, journeys } = state;
+  const { loading, error, portalUser, journeys, summary } = state;
 
   const formatMoney = (v: number | null) =>
     v == null ? '-' : `$${v.toLocaleString()}`;
@@ -176,7 +257,7 @@ export default function PortalDashboardPage() {
               Hayvn Client Portal
             </h1>
             <p className="text-xs text-slate-400">
-              View your journeys with your agent in one place.
+              A single place to follow your journeys, homes, tours, and offers.
             </p>
           </div>
           <div className="text-right">
@@ -224,6 +305,7 @@ export default function PortalDashboardPage() {
       </header>
 
       <section className="mx-auto max-w-5xl px-4 py-6 space-y-4">
+        {/* Status + errors */}
         {loading && (
           <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-200">
             Loading your journeys…
@@ -247,11 +329,121 @@ export default function PortalDashboardPage() {
           </div>
         )}
 
+        {/* Summary row (only show if we have a signed-in user and no fatal error) */}
+        {!loading && !error && portalUser && (
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+            <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 flex flex-col justify-between">
+              <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">
+                Journeys
+              </div>
+              <div className="flex items-end justify-between gap-2">
+                <div>
+                  <div className="text-2xl font-semibold text-slate-50">
+                    {journeys.length}
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    Buying / selling paths your agent has set up.
+                  </div>
+                </div>
+                <Link
+                  href="#journeys"
+                  className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline"
+                >
+                  View journeys
+                </Link>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 flex flex-col justify-between">
+              <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">
+                Saved homes
+              </div>
+              <div className="flex items-end justify-between gap-2">
+                <div>
+                  <div className="text-2xl font-semibold text-slate-50">
+                    {summary.savedHomes}
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    Homes linked to your journeys.
+                  </div>
+                </div>
+                <Link
+                  href="/portal/properties"
+                  className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline"
+                >
+                  View properties
+                </Link>
+              </div>
+              {summary.favoriteHomes > 0 && (
+                <div className="mt-1 text-[11px] text-emerald-300">
+                  {summary.favoriteHomes} marked as favorites
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 flex flex-col justify-between">
+              <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">
+                Tours & offers
+              </div>
+              <div className="flex items-end justify-between gap-2">
+                <div>
+                  <div className="text-sm text-slate-100">
+                    <span className="font-semibold">
+                      {summary.upcomingTours}
+                    </span>{' '}
+                    upcoming tour
+                    {summary.upcomingTours === 1 ? '' : 's'}
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    {summary.offers} offer
+                    {summary.offers === 1 ? '' : 's'} created so far.
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1 text-right">
+                  <Link
+                    href="/portal/tours"
+                    className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline"
+                  >
+                    View tours
+                  </Link>
+                  <Link
+                    href="/portal/offers"
+                    className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline"
+                  >
+                    View offers
+                  </Link>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 flex flex-col justify-between">
+              <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">
+                Messages
+              </div>
+              <div className="flex items-end justify-between gap-2">
+                <div>
+                  <div className="text-2xl font-semibold text-slate-50">
+                    {summary.unreadMessages}
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    Unread messages from your agent.
+                  </div>
+                </div>
+                <Link
+                  href="/portal/messages"
+                  className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline"
+                >
+                  Open inbox
+                </Link>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Empty state if no journeys yet */}
         {!loading && !error && journeys.length === 0 && (
           <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4 text-sm text-slate-200">
-            <p className="mb-1">
-              You don&apos;t have any journeys yet.
-            </p>
+            <p className="mb-1">You don&apos;t have any journeys yet.</p>
             <p className="text-xs text-slate-400">
               Ask your agent to create a client record in Hayvn-RE using this
               email address. Once they do, you&apos;ll see it here along with
@@ -260,8 +452,9 @@ export default function PortalDashboardPage() {
           </div>
         )}
 
+        {/* Journeys list */}
         {!loading && !error && journeys.length > 0 && (
-          <div className="space-y-3">
+          <section id="journeys" className="space-y-3">
             {journeys.map((j) => {
               const c = j.client;
               const label =
@@ -341,7 +534,7 @@ export default function PortalDashboardPage() {
                 </article>
               );
             })}
-          </div>
+          </section>
         )}
       </section>
     </main>

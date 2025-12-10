@@ -10,8 +10,8 @@
 // - JSON responses
 // - Authorization: Bearer <token> (stored in idx_connections.api_key)
 //
-// NOTE: Different MLSs may tweak field names. Once you see real CRMLS
-// JSON, you can adjust mapResoPropertyToNormalized mappings.
+// NOTE: Different MLSs may tweak field names. Once you see real JSON
+// from MLSListings, you can tweak mapResoPropertyToNormalized mappings.
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -323,48 +323,60 @@ async function upsertListingsAndPhotos(
   }
 
   // 1) Upsert listings
-  const listingRows = listings.map((l) => ({
-    brokerage_id: connection.brokerage_id,
-    idx_connection_id: connection.id,
-    mls_number: l.mls_number,
-    mls_source: l.mls_source || connection.mls_name || connection.vendor_name,
+  const nowIso = new Date().toISOString();
 
-    status: l.status,
-    list_date: l.list_date,
-    close_date: l.close_date,
-    status_last_changed_at: l.status_last_changed_at,
+  const listingRows = listings.map((l) => {
+    const is_active = l.status === "active";
+    const is_pending = l.status === "pending";
+    const is_sold = l.status === "sold";
 
-    property_type: l.property_type,
-    listing_title: l.listing_title,
-    description: l.description,
+    return {
+      brokerage_id: connection.brokerage_id,
+      idx_connection_id: connection.id,
+      mls_number: l.mls_number,
+      mls_source: l.mls_source || connection.mls_name || connection.vendor_name,
 
-    list_price: l.list_price,
-    original_list_price: l.original_list_price,
-    close_price: l.close_price,
+      status: l.status,
+      list_date: l.list_date,
+      close_date: l.close_date,
+      status_last_changed_at: l.status_last_changed_at,
 
-    beds: l.beds,
-    baths: l.baths,
-    sqft: l.sqft,
-    lot_sqft: l.lot_sqft,
-    year_built: l.year_built,
+      property_type: l.property_type,
+      listing_title: l.listing_title,
+      description: l.description,
 
-    street_number: l.street_number,
-    street_dir_prefix: l.street_dir_prefix,
-    street_name: l.street_name,
-    street_suffix: l.street_suffix,
-    unit: l.unit,
-    city: l.city,
-    state: l.state,
-    postal_code: l.postal_code,
-    county: l.county,
+      list_price: l.list_price,
+      original_list_price: l.original_list_price,
+      close_price: l.close_price,
 
-    latitude: l.latitude,
-    longitude: l.longitude,
+      beds: l.beds,
+      baths: l.baths,
+      sqft: l.sqft,
+      lot_sqft: l.lot_sqft,
+      year_built: l.year_built,
 
-    raw_payload: l.raw_payload ?? null,
+      street_number: l.street_number,
+      street_dir_prefix: l.street_dir_prefix,
+      street_name: l.street_name,
+      street_suffix: l.street_suffix,
+      unit: l.unit,
+      city: l.city,
+      state: l.state,
+      postal_code: l.postal_code,
+      county: l.county,
 
-    last_seen_at: new Date().toISOString(),
-  }));
+      latitude: l.latitude,
+      longitude: l.longitude,
+
+      is_active,
+      is_pending,
+      is_sold,
+
+      raw_payload: l.raw_payload ?? null,
+
+      last_seen_at: nowIso,
+    };
+  });
 
   const { data: upserted, error: upsertError } = await supabase
     .from("mls_listings")
@@ -386,6 +398,8 @@ async function upsertListingsAndPhotos(
   });
 
   // 2) Insert photos (simple approach: clear & reinsert by listing)
+  // Right now, NormalizedListing.photos is empty because we haven't
+  // wired RESO Media yet. This loop is future-proof for when we do.
   let photoInserts = 0;
 
   for (const l of listings) {
@@ -467,6 +481,8 @@ async function fetchListingsForConnection(
     soldWindowDays: opts.soldWindowDays,
   });
 
+  // For now we only support RESO Web API + Bearer token.
+  // MLSListings should fit this path once you have their endpoint.
   if (connection.endpoint_url && connection.api_key) {
     return await fetchResoBearerListings(connection, opts);
   }
@@ -483,9 +499,9 @@ async function fetchListingsForConnection(
  * - JSON responses
  * - Authorization: Bearer <token> (stored in idx_connections.api_key)
  *
- * Example pattern:
+ * Example pattern (you will tweak this once you see MLSListings docs):
  *   GET <endpoint_url>
- *     ?$filter=StandardStatus eq 'Active' or ...
+ *     ?$filter=StandardStatus in ('Active','Pending','Closed') ...
  *     &$orderby=ModificationTimestamp desc
  *     &$top=500
  *   Authorization: Bearer <access_token>
@@ -515,19 +531,15 @@ async function fetchResoBearerListings(
   // - Pending
   // - Closed within last N days
   //
-  // NOTE: Some RESO implementations need dates quoted, or use
-  // CloseDateActual / CloseDateTime, etc. This is a first-pass
-  // that you'll tweak when you see CRMLS's exact metadata.
+  // NOTE: OData date syntax differs per implementation.
+  // We'll start with simple quoted date; adjust when you see real errors.
   const filterExpr =
     "(" +
     "StandardStatus eq 'Active'" +
     " or StandardStatus eq 'Pending'" +
-    ` or (StandardStatus eq 'Closed' and CloseDate ge ${soldCutoffStr})` +
+    ` or (StandardStatus eq 'Closed' and CloseDate ge '${soldCutoffStr}')` +
     ")";
 
-  // Basic first-version strategy:
-  // - Pull up to 500 records ordered by ModificationTimestamp.
-  // - Later you can follow @odata.nextLink for more pages.
   const url = new URL(baseUrl);
   url.searchParams.set("$filter", filterExpr);
   url.searchParams.set("$orderby", "ModificationTimestamp desc");
@@ -589,24 +601,26 @@ async function fetchResoBearerListings(
 /**
  * Map a RESO Web API "Property" record into your NormalizedListing shape.
  *
- * NOTE: Field names here follow typical RESO Data Dictionary conventions.
- * Once you see your actual CRMLS metadata / sample JSON, you can adjust
- * the mappings (CloseDate vs CloseDateActual, etc).
+ * This version is aligned with the API-IDX / IDX-VOW-FULL fields you pasted:
+ * - uses ListingKey / ListingId
+ * - StandardStatus / MlsStatus
+ * - OnMarketDate, CloseDate, StatusChangeTimestamp, ModificationTimestamp
+ * - UnparsedAddress, PublicRemarks, etc.
  */
 function mapResoPropertyToNormalized(
   record: any,
   mlsSource: string | null,
 ): NormalizedListing | null {
-  // Choose some reasonable fallback chain for the MLS number
+  // MLS number: prefer ListingKey, fall back to ListingId / ListingKeyNumeric
   const mlsNumber: string | null =
-    record.ListingId ??
     record.ListingKey ??
+    record.ListingId ??
     (record.ListingKeyNumeric != null
       ? String(record.ListingKeyNumeric)
       : null);
 
   if (!mlsNumber) {
-    console.warn("mapResoPropertyToNormalized(): missing ListingId/ListingKey");
+    console.warn("mapResoPropertyToNormalized(): missing ListingKey/ListingId");
     return null;
   }
 
@@ -623,40 +637,68 @@ function mapResoPropertyToNormalized(
     return Number.isFinite(n) ? n : null;
   };
 
+  // Pick best date values based on MLS field lists
+  const listDate: string | null =
+    record.OnMarketDate ??
+    record.ListingContractDate ??
+    null;
+
+  const closeDate: string | null =
+    record.CloseDate ??
+    null;
+
+  const statusChangedAt: string | null =
+    record.StatusChangeTimestamp ??
+    record.ContractStatusChangeDate ??
+    record.ModificationTimestamp ??
+    null;
+
+  const bathsTotal: number | null =
+    toNumber(record.BathroomsTotalInteger) ??
+    null;
+
+  const sqft: number | null =
+    toNumber(record.LivingArea) ??
+    toNumber(record.BuildingAreaTotal);
+
+  const lotSqft: number | null =
+    toNumber(record.LotSizeSquareFeet) ??
+    null;
+
+  const city: string | null =
+    record.City ??
+    record.PostalCity ??
+    null;
+
+  const listingTitle: string | null =
+    record.UnparsedAddress ??
+    null;
+
+  const description: string | null =
+    record.PublicRemarks ??
+    null;
+
   const normalized: NormalizedListing = {
     mls_number: mlsNumber,
     mls_source: mlsSource,
 
     status,
-    list_date:
-      record.ListingContractDate ??
-      record.OnMarketDate ??
-      null,
-    close_date:
-      record.CloseDate ??
-      record.CloseDateActual ??
-      null,
-    status_last_changed_at:
-      record.ModificationTimestamp ??
-      null,
+    list_date: listDate,
+    close_date: closeDate,
+    status_last_changed_at: statusChangedAt,
 
     property_type: record.PropertyType ?? null,
-    listing_title: null, // many feeds don't have a distinct "title"
-    description:
-      record.PublicRemarks ??
-      record.PrivateRemarks ??
-      null,
+    listing_title: listingTitle,
+    description,
 
     list_price: toNumber(record.ListPrice),
     original_list_price: toNumber(record.OriginalListPrice),
     close_price: toNumber(record.ClosePrice),
 
     beds: toNumber(record.BedroomsTotal),
-    baths: toNumber(record.BathroomsTotalInteger),
-    sqft:
-      toNumber(record.LivingArea) ??
-      toNumber(record.BuildingAreaTotal),
-    lot_sqft: toNumber(record.LotSizeSquareFeet),
+    baths: bathsTotal,
+    sqft,
+    lot_sqft: lotSqft,
     year_built: toNumber(record.YearBuilt),
 
     street_number: record.StreetNumber ?? null,
@@ -664,7 +706,7 @@ function mapResoPropertyToNormalized(
     street_name: record.StreetName ?? null,
     street_suffix: record.StreetSuffix ?? null,
     unit: record.UnitNumber ?? null,
-    city: record.City ?? null,
+    city,
     state: record.StateOrProvince ?? null,
     postal_code: record.PostalCode ?? null,
     county: record.CountyOrParish ?? null,
@@ -672,8 +714,7 @@ function mapResoPropertyToNormalized(
     latitude: toNumber(record.Latitude),
     longitude: toNumber(record.Longitude),
 
-    // For now we are not pulling Media here.
-    // Later you can use $expand=Media and map it into photos.
+    // Media/photos not wired yet; we'll hook up RESO Media later.
     photos: [],
 
     raw_payload: record,
@@ -682,10 +723,12 @@ function mapResoPropertyToNormalized(
   return normalized;
 }
 
-function normalizeResoStatus(statusRaw: string | null): NormalizedListing["status"] {
+function normalizeResoStatus(
+  statusRaw: string | null,
+): NormalizedListing["status"] {
   if (!statusRaw) return "other";
 
-  const s = statusRaw.toLowerCase();
+  const s = String(statusRaw).toLowerCase();
 
   if (
     s === "active" ||
@@ -701,7 +744,8 @@ function normalizeResoStatus(statusRaw: string | null): NormalizedListing["statu
     s === "pending" ||
     s === "hold" ||
     s === "undercontract" ||
-    s === "under contract"
+    s === "under contract" ||
+    s === "contingent"
   ) {
     return "pending";
   }
