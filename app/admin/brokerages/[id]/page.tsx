@@ -181,9 +181,7 @@ export default function AdminBrokerageDetailPage() {
       ] = await Promise.all([
         supabase
           .from('brokerages')
-          .select(
-            'id, name, mls_name, mls_office_id, join_code, is_solo'
-          )
+          .select('id, name, mls_name, mls_office_id, join_code, is_solo')
           .eq('id', brokerageId)
           .single(),
         supabase
@@ -364,9 +362,7 @@ export default function AdminBrokerageDetailPage() {
             </div>
             <div className="flex justify-between text-[12px]">
               <span className="text-slate-400">Join Code</span>
-              <span className="font-mono">
-                {brokerage.join_code || '—'}
-              </span>
+              <span className="font-mono">{brokerage.join_code || '—'}</span>
             </div>
           </div>
         </div>
@@ -399,7 +395,18 @@ export default function AdminBrokerageDetailPage() {
       {/* IDX Connections */}
       <section className="space-y-3 mb-8">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">IDX Connections</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-semibold">IDX Connections</h2>
+
+            {/* NEW: add connection */}
+            <Link
+              href={`/admin/brokerages/${brokerageId}/idx/new`}
+              className="text-[11px] rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-slate-200 hover:bg-slate-900"
+            >
+              + Add connection
+            </Link>
+          </div>
+
           <div className="text-[11px] text-slate-400">
             One brokerage may have multiple IDX/RESO/RETS connections.
           </div>
@@ -409,21 +416,15 @@ export default function AdminBrokerageDetailPage() {
           <table className="w-full text-[11px]">
             <thead className="bg-slate-900/80">
               <tr className="text-left">
-                <th className="px-3 py-2 font-medium text-slate-300">
-                  Label
-                </th>
+                <th className="px-3 py-2 font-medium text-slate-300">Label</th>
                 <th className="px-3 py-2 font-medium text-slate-300">
                   MLS / Vendor
                 </th>
-                <th className="px-3 py-2 font-medium text-slate-300">
-                  Endpoint
-                </th>
+                <th className="px-3 py-2 font-medium text-slate-300">Endpoint</th>
                 <th className="px-3 py-2 font-medium text-slate-300">
                   Username
                 </th>
-                <th className="px-3 py-2 font-medium text-slate-300">
-                  Status
-                </th>
+                <th className="px-3 py-2 font-medium text-slate-300">Status</th>
                 <th className="px-3 py-2 font-medium text-slate-300">
                   Last status
                 </th>
@@ -469,18 +470,14 @@ export default function AdminBrokerageDetailPage() {
                         </div>
                       </td>
                       <td className="px-3 py-2 text-slate-300">
-                        <span className="font-mono">
-                          {c.username || '—'}
-                        </span>
+                        <span className="font-mono">{c.username || '—'}</span>
                       </td>
                       <td className="px-3 py-2">
                         <span className={className}>{label}</span>
                       </td>
                       <td className="px-3 py-2 text-slate-300">
                         {c.last_status_at
-                          ? new Date(
-                              c.last_status_at
-                            ).toLocaleString()
+                          ? new Date(c.last_status_at).toLocaleString()
                           : '—'}
                       </td>
                       <td className="px-3 py-2 text-slate-300">
@@ -514,21 +511,15 @@ export default function AdminBrokerageDetailPage() {
           <table className="w-full text-[11px]">
             <thead className="bg-slate-900/80">
               <tr className="text-left">
-                <th className="px-3 py-2 font-medium text-slate-300">
-                  MLS #
-                </th>
+                <th className="px-3 py-2 font-medium text-slate-300">MLS #</th>
                 <th className="px-3 py-2 font-medium text-slate-300">
                   Status
                 </th>
-                <th className="px-3 py-2 font-medium text-slate-300">
-                  Price
-                </th>
+                <th className="px-3 py-2 font-medium text-slate-300">Price</th>
                 <th className="px-3 py-2 font-medium text-slate-300">
                   Beds/Baths
                 </th>
-                <th className="px-3 py-2 font-medium text-slate-300">
-                  SqFt
-                </th>
+                <th className="px-3 py-2 font-medium text-slate-300">SqFt</th>
                 <th className="px-3 py-2 font-medium text-slate-300">
                   Location
                 </th>
@@ -553,9 +544,7 @@ export default function AdminBrokerageDetailPage() {
                     <td className="px-3 py-2 font-mono text-slate-100">
                       {l.mls_number}
                     </td>
-                    <td className="px-3 py-2 text-slate-300">
-                      {l.status}
-                    </td>
+                    <td className="px-3 py-2 text-slate-300">{l.status}</td>
                     <td className="px-3 py-2 text-slate-300">
                       {l.list_price != null
                         ? `$${Number(l.list_price).toLocaleString()}`
@@ -565,9 +554,7 @@ export default function AdminBrokerageDetailPage() {
                       {l.beds ?? '-'} / {l.baths ?? '-'}
                     </td>
                     <td className="px-3 py-2 text-slate-300">
-                      {l.sqft != null
-                        ? Number(l.sqft).toLocaleString()
-                        : '—'}
+                      {l.sqft != null ? Number(l.sqft).toLocaleString() : '—'}
                     </td>
                     <td className="px-3 py-2 text-slate-300">
                       {l.city || '—'}
@@ -599,18 +586,10 @@ export default function AdminBrokerageDetailPage() {
           <table className="w-full text-[11px]">
             <thead className="bg-slate-900/80">
               <tr className="text-left">
-                <th className="px-3 py-2 font-medium text-slate-300">
-                  Agent
-                </th>
-                <th className="px-3 py-2 font-medium text-slate-300">
-                  Email
-                </th>
-                <th className="px-3 py-2 font-medium text-slate-300">
-                  Phone
-                </th>
-                <th className="px-3 py-2 font-medium text-slate-300">
-                  Role
-                </th>
+                <th className="px-3 py-2 font-medium text-slate-300">Agent</th>
+                <th className="px-3 py-2 font-medium text-slate-300">Email</th>
+                <th className="px-3 py-2 font-medium text-slate-300">Phone</th>
+                <th className="px-3 py-2 font-medium text-slate-300">Role</th>
               </tr>
             </thead>
             <tbody>
@@ -629,12 +608,8 @@ export default function AdminBrokerageDetailPage() {
                     <td className="px-3 py-2">
                       {a.full_name || 'Unnamed agent'}
                     </td>
-                    <td className="px-3 py-2 text-slate-300">
-                      {a.email || '—'}
-                    </td>
-                    <td className="px-3 py-2 text-slate-300">
-                      {a.phone || '—'}
-                    </td>
+                    <td className="px-3 py-2 text-slate-300">{a.email || '—'}</td>
+                    <td className="px-3 py-2 text-slate-300">{a.phone || '—'}</td>
                     <td className="px-3 py-2 uppercase tracking-wide text-[10px] text-slate-400">
                       {a.role}
                     </td>
@@ -648,3 +623,4 @@ export default function AdminBrokerageDetailPage() {
     </main>
   );
 }
+
