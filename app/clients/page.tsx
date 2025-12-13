@@ -310,21 +310,30 @@ export default function ClientsPage() {
 
                     <td className="px-3 py-2 border-b border-white/5 align-top">
                       <div className="flex justify-end gap-2">
-                        <Link
-                          href={`/clients/${c.id}`}
-                          className="text-xs text-[#EBD27A] hover:underline"
-                        >
-                          View
-                        </Link>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(c)}
-                          disabled={deletingId === c.id}
-                          className="text-xs text-red-300 hover:text-red-200 hover:underline disabled:opacity-50"
-                        >
-                          {deletingId === c.id ? 'Deleting…' : 'Delete'}
-                        </button>
-                      </div>
+  <Link
+    href={`/clients/${c.id}`}
+    className="text-xs text-[#EBD27A] hover:underline"
+  >
+    View
+  </Link>
+
+  <Link
+    href={`/clients/${c.id}/edit`}
+    className="text-xs text-slate-200 hover:text-white hover:underline"
+  >
+    Edit
+  </Link>
+
+  <button
+    type="button"
+    onClick={() => handleDelete(c)}
+    disabled={deletingId === c.id}
+    className="text-xs text-red-300 hover:text-red-200 hover:underline disabled:opacity-50"
+  >
+    {deletingId === c.id ? 'Deleting…' : 'Delete'}
+  </button>
+</div>
+
                     </td>
                   </tr>
                 ))}
