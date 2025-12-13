@@ -37,8 +37,8 @@ type NormalizedListing = {
   mls_source: string | null;
 
   status: "active" | "pending" | "sold" | "other";
-  list_date: string | null;      // ISO date ("YYYY-MM-DD")
-  close_date: string | null;     // ISO date or null
+  list_date: string | null; // ISO date ("YYYY-MM-DD")
+  close_date: string | null; // ISO date or null
   status_last_changed_at: string | null; // ISO timestamp
 
   property_type: string | null;
@@ -82,7 +82,6 @@ function getSupabaseClient(): SupabaseClient {
   const serviceKey = Deno.env.get("SERVICE_ROLE_KEY");
 
   if (!url || !serviceKey) {
-    // Match the env var names you set with `supabase secrets set`
     throw new Error("Missing PROJECT_URL or SERVICE_ROLE_KEY env vars");
   }
 
@@ -190,7 +189,7 @@ async function syncConnection(opts: {
   const soldWindowDays = 90;
 
   try {
-    // 2) Fetch listings from MLS/vendor (Hayvn preferred format: RESO Web API / Bearer)
+    // 2) Fetch listings from MLS/vendor
     const listings = await fetchListingsForConnection(connection, {
       soldWindowDays,
     });
@@ -200,10 +199,6 @@ async function syncConnection(opts: {
         `Dry run: fetched ${listings.length} listings for connection ${connection.id}`,
       );
 
-      // For the UI "Test sync" button:
-      // - We DO NOT change status
-      // - We DO update last_status_at
-      // - We clear last_error
       await markConnectionStatus(
         supabase,
         connection.id,
@@ -221,13 +216,7 @@ async function syncConnection(opts: {
 
     if (listings.length === 0) {
       console.log(`No listings returned for connection ${connection.id}`);
-      await markConnectionStatus(
-        supabase,
-        connection.id,
-        "live",
-        now,
-        null,
-      );
+      await markConnectionStatus(supabase, connection.id, "live", now, null);
       return {
         connectionId: connection.id,
         ok: true,
@@ -243,13 +232,7 @@ async function syncConnection(opts: {
     );
 
     // 4) Update connection status
-    await markConnectionStatus(
-      supabase,
-      connection.id,
-      "live",
-      now,
-      null,
-    );
+    await markConnectionStatus(supabase, connection.id, "live", now, null);
 
     console.log(
       `IDX sync complete for connection ${connection.id}: ${insertedOrUpdated} listings, ${photoInserts} photos`,
@@ -263,22 +246,11 @@ async function syncConnection(opts: {
       photoInserts,
     };
   } catch (err: any) {
-    console.error(
-      `Error during IDX sync for connection ${connection.id}:`,
-      err,
-    );
+    console.error(`Error during IDX sync for connection ${connection.id}:`, err);
 
-    const msg =
-      err?.message || "Unknown error during IDX sync for this connection";
+    const msg = err?.message || "Unknown error during IDX sync for this connection";
 
-    // Record the error, but don't force status away from whatever it was
-    await markConnectionStatus(
-      supabase,
-      connection.id,
-      connection.status,
-      now,
-      msg,
-    );
+    await markConnectionStatus(supabase, connection.id, connection.status, now, msg);
 
     return {
       connectionId: connection.id,
@@ -322,13 +294,12 @@ async function upsertListingsAndPhotos(
     return { insertedOrUpdated: 0, photoInserts: 0 };
   }
 
-  // 1) Upsert listings
   const nowIso = new Date().toISOString();
 
   const listingRows = listings.map((l) => {
-    const is_active = l.status === "active";
-    const is_pending = l.status === "pending";
-    const is_sold = l.status === "sold";
+    // NOTE:
+    // Do NOT write is_active/is_pending/is_sold — your DB rejects non-DEFAULT writes
+    // (likely GENERATED columns). Those can be derived from `status` in queries/views.
 
     return {
       brokerage_id: connection.brokerage_id,
@@ -368,10 +339,6 @@ async function upsertListingsAndPhotos(
       latitude: l.latitude,
       longitude: l.longitude,
 
-      is_active,
-      is_pending,
-      is_sold,
-
       raw_payload: l.raw_payload ?? null,
 
       last_seen_at: nowIso,
@@ -392,14 +359,10 @@ async function upsertListingsAndPhotos(
 
   const listingIdMap = new Map<string, string>();
   (upserted || []).forEach((row: any) => {
-    // key by brokerage_id + mls_number
     const key = `${row.brokerage_id}::${row.mls_number}`;
     listingIdMap.set(key, row.id);
   });
 
-  // 2) Insert photos (simple approach: clear & reinsert by listing)
-  // Right now, NormalizedListing.photos is empty because we haven't
-  // wired RESO Media yet. This loop is future-proof for when we do.
   let photoInserts = 0;
 
   for (const l of listings) {
@@ -407,19 +370,13 @@ async function upsertListingsAndPhotos(
     const listingId = listingIdMap.get(key);
     if (!listingId) continue;
 
-    // Clear existing photos for this listing
     const { error: delErr } = await supabase
       .from("mls_listing_photos")
       .delete()
       .eq("listing_id", listingId);
 
     if (delErr) {
-      console.error(
-        "Delete listing photos error:",
-        listingId,
-        delErr.message,
-      );
-      // non-fatal
+      console.error("Delete listing photos error:", listingId, delErr.message);
     }
 
     if (!l.photos || l.photos.length === 0) continue;
@@ -428,21 +385,13 @@ async function upsertListingsAndPhotos(
       listing_id: listingId,
       url: p.url,
       caption: p.caption ?? null,
-      sort_order:
-        typeof p.sort_order === "number" ? p.sort_order : idx,
+      sort_order: typeof p.sort_order === "number" ? p.sort_order : idx,
     }));
 
-    const { error: insErr } = await supabase
-      .from("mls_listing_photos")
-      .insert(rows);
+    const { error: insErr } = await supabase.from("mls_listing_photos").insert(rows);
 
     if (insErr) {
-      console.error(
-        "Insert listing photos error:",
-        listingId,
-        insErr.message,
-      );
-      // non-fatal
+      console.error("Insert listing photos error:", listingId, insErr.message);
     } else {
       photoInserts += rows.length;
     }
@@ -454,24 +403,10 @@ async function upsertListingsAndPhotos(
   };
 }
 
-/**
- * Fetch listings from an IDX connection.
- *
- * For now, Hayvn-RE's preferred format is:
- * - RESO Web API / OData Property endpoint
- * - JSON response
- * - Bearer token stored in idx_connections.api_key
- *
- * Any connection with endpoint_url + api_key is treated as that.
- * Later, you can branch by adapter_key/vendor if you support more formats.
- */
 async function fetchListingsForConnection(
   connection: IdxConnection,
   opts: { soldWindowDays: number },
 ): Promise<NormalizedListing[]> {
-  const mlsName = (connection.mls_name || "").toLowerCase().trim();
-  const vendor = (connection.vendor_name || "").toLowerCase().trim();
-
   console.log("fetchListingsForConnection()", {
     connectionId: connection.id,
     brokerage_id: connection.brokerage_id,
@@ -481,8 +416,6 @@ async function fetchListingsForConnection(
     soldWindowDays: opts.soldWindowDays,
   });
 
-  // For now we only support RESO Web API + Bearer token.
-  // MLSListings should fit this path once you have their endpoint.
   if (connection.endpoint_url && connection.api_key) {
     return await fetchResoBearerListings(connection, opts);
   }
@@ -493,19 +426,6 @@ async function fetchListingsForConnection(
   return [];
 }
 
-/**
- * Hayvn-RE preferred IDX format:
- * - RESO Web API / OData "Property" endpoint
- * - JSON responses
- * - Authorization: Bearer <token> (stored in idx_connections.api_key)
- *
- * Example pattern (you will tweak this once you see MLSListings docs):
- *   GET <endpoint_url>
- *     ?$filter=StandardStatus in ('Active','Pending','Closed') ...
- *     &$orderby=ModificationTimestamp desc
- *     &$top=500
- *   Authorization: Bearer <access_token>
- */
 async function fetchResoBearerListings(
   connection: IdxConnection,
   opts: { soldWindowDays: number },
@@ -521,18 +441,10 @@ async function fetchResoBearerListings(
     return [];
   }
 
-  // Sold window
   const soldCutoff = new Date();
   soldCutoff.setDate(soldCutoff.getDate() - opts.soldWindowDays);
-  const soldCutoffStr = soldCutoff.toISOString().slice(0, 10); // YYYY-MM-DD
+  const soldCutoffStr = soldCutoff.toISOString().slice(0, 10);
 
-  // Filter:
-  // - Active
-  // - Pending
-  // - Closed within last N days
-  //
-  // NOTE: OData date syntax differs per implementation.
-  // We'll start with simple quoted date; adjust when you see real errors.
   const filterExpr =
     "(" +
     "StandardStatus eq 'Active'" +
@@ -541,17 +453,20 @@ async function fetchResoBearerListings(
     ")";
 
   const url = new URL(baseUrl);
-  url.searchParams.set("$filter", filterExpr);
+
+  // TEMP DEBUG: remove filter to prove we can fetch any Property rows
+  // url.searchParams.set("$filter", filterExpr);
+
   url.searchParams.set("$orderby", "ModificationTimestamp desc");
-  url.searchParams.set("$top", "500");
+  url.searchParams.set("$top", "5");
 
   console.log("fetchResoBearerListings(): requesting URL", url.toString());
 
   const res = await fetch(url.toString(), {
     method: "GET",
     headers: {
-      "Authorization": `Bearer ${token}`,
-      "Accept": "application/json",
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
     },
   });
 
@@ -563,7 +478,6 @@ async function fetchResoBearerListings(
       res.statusText,
       text,
     );
-    // Non-fatal: return [] so the connection doesn't poison the entire sync.
     return [];
   }
 
@@ -573,10 +487,7 @@ async function fetchResoBearerListings(
   });
 
   if (!body || !Array.isArray((body as any).value)) {
-    console.warn(
-      "fetchResoBearerListings(): response missing 'value' array",
-      body,
-    );
+    console.warn("fetchResoBearerListings(): response missing 'value' array", body);
     return [];
   }
 
@@ -598,37 +509,21 @@ async function fetchResoBearerListings(
   return listings;
 }
 
-/**
- * Map a RESO Web API "Property" record into your NormalizedListing shape.
- *
- * This version is aligned with the API-IDX / IDX-VOW-FULL fields you pasted:
- * - uses ListingKey / ListingId
- * - StandardStatus / MlsStatus
- * - OnMarketDate, CloseDate, StatusChangeTimestamp, ModificationTimestamp
- * - UnparsedAddress, PublicRemarks, etc.
- */
 function mapResoPropertyToNormalized(
   record: any,
   mlsSource: string | null,
 ): NormalizedListing | null {
-  // MLS number: prefer ListingKey, fall back to ListingId / ListingKeyNumeric
   const mlsNumber: string | null =
     record.ListingKey ??
     record.ListingId ??
-    (record.ListingKeyNumeric != null
-      ? String(record.ListingKeyNumeric)
-      : null);
+    (record.ListingKeyNumeric != null ? String(record.ListingKeyNumeric) : null);
 
   if (!mlsNumber) {
     console.warn("mapResoPropertyToNormalized(): missing ListingKey/ListingId");
     return null;
   }
 
-  const statusRaw: string | null =
-    record.StandardStatus ??
-    record.MlsStatus ??
-    null;
-
+  const statusRaw: string | null = record.StandardStatus ?? record.MlsStatus ?? null;
   const status = normalizeResoStatus(statusRaw);
 
   const toNumber = (val: unknown): number | null => {
@@ -637,48 +532,27 @@ function mapResoPropertyToNormalized(
     return Number.isFinite(n) ? n : null;
   };
 
-  // Pick best date values based on MLS field lists
-  const listDate: string | null =
-    record.OnMarketDate ??
-    record.ListingContractDate ??
-    null;
-
-  const closeDate: string | null =
-    record.CloseDate ??
-    null;
-
+  const listDate: string | null = record.OnMarketDate ?? record.ListingContractDate ?? null;
+  const closeDate: string | null = record.CloseDate ?? null;
   const statusChangedAt: string | null =
     record.StatusChangeTimestamp ??
     record.ContractStatusChangeDate ??
     record.ModificationTimestamp ??
     null;
 
-  const bathsTotal: number | null =
-    toNumber(record.BathroomsTotalInteger) ??
-    null;
+  const bathsTotal: number | null = toNumber(record.BathroomsTotalInteger) ?? null;
 
   const sqft: number | null =
-    toNumber(record.LivingArea) ??
-    toNumber(record.BuildingAreaTotal);
+    toNumber(record.LivingArea) ?? toNumber(record.BuildingAreaTotal);
 
-  const lotSqft: number | null =
-    toNumber(record.LotSizeSquareFeet) ??
-    null;
+  const lotSqft: number | null = toNumber(record.LotSizeSquareFeet) ?? null;
 
-  const city: string | null =
-    record.City ??
-    record.PostalCity ??
-    null;
+  const city: string | null = record.City ?? record.PostalCity ?? null;
 
-  const listingTitle: string | null =
-    record.UnparsedAddress ??
-    null;
+  const listingTitle: string | null = record.UnparsedAddress ?? null;
+  const description: string | null = record.PublicRemarks ?? null;
 
-  const description: string | null =
-    record.PublicRemarks ??
-    null;
-
-  const normalized: NormalizedListing = {
+  return {
     mls_number: mlsNumber,
     mls_source: mlsSource,
 
@@ -714,13 +588,9 @@ function mapResoPropertyToNormalized(
     latitude: toNumber(record.Latitude),
     longitude: toNumber(record.Longitude),
 
-    // Media/photos not wired yet; we'll hook up RESO Media later.
     photos: [],
-
     raw_payload: record,
   };
-
-  return normalized;
 }
 
 function normalizeResoStatus(
