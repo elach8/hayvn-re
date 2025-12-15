@@ -1,10 +1,10 @@
 // supabase/functions/idx-sync/index.ts
-// IDX sync for Hayvn-RE (RESO Web API / OData).
+// IDX sync for Hayvn-RE (MLSListings RESO Web API / OData).
 // Key behavior:
-// - Synces the *VOW universe* for each live idx_connection (not just brokerage-owned listings).
+// - Syncs the VOW universe for each live idx_connection (not just brokerage-owned listings).
 // - Upserts into mls_listings keyed by (idx_connection_id, mls_number)
-// - Stores brokerage_id for tenancy, but does NOT use it as the "ownership" scope.
-// - Paginates via $top + $skip.
+// - Paginates via $top + $skip (MLSListings cap: $top <= 300)
+// - Includes CORS so you can trigger from Vercel (/ingest page)
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -17,8 +17,8 @@ type IdxConnection = {
   mls_name: string | null;
   connection_label: string | null;
   vendor_name: string | null;
-  endpoint_url: string | null; // base VOW url or Property endpoint
-  api_key: string | null; // Bearer token (MLSListings Web API - VOW token)
+  endpoint_url: string | null; // e.g. https://vendordata.api-v2.mlslistings.com/vow OR .../vow/Property
+  api_key: string | null; // Bearer token
   status: IdxStatus | null;
 };
 
@@ -55,6 +55,7 @@ type NormalizedListing = {
 };
 
 function corsHeaders(origin: string | null) {
+  // reflect origin (fine for internal tool). lock down later if you want.
   return {
     "access-control-allow-origin": origin ?? "*",
     "access-control-allow-headers":
@@ -63,11 +64,11 @@ function corsHeaders(origin: string | null) {
   };
 }
 
-function json(status: number, body: Record<string, unknown>, headers: HeadersInit = {}) {
+function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body, null, 2), {
     status,
     headers: {
-      "content-type": "application/json; charset=utf-8",
+      "Content-Type": "application/json; charset=utf-8",
       ...headers,
     },
   });
@@ -85,7 +86,6 @@ function getSupabaseAdmin(): SupabaseClient {
 // endpoint_url might be:
 // - https://vendordata.api-v2.mlslistings.com/vow
 // - https://vendordata.api-v2.mlslistings.com/vow/Property
-// Normalize to Property endpoint.
 function toPropertyEndpoint(endpointUrl: string): string {
   const trimmed = endpointUrl.replace(/\/+$/, "");
   if (trimmed.toLowerCase().endsWith("/property")) return trimmed;
@@ -164,12 +164,14 @@ function mapResoPropertyToNormalized(record: any, mlsSource: string | null): Nor
 
 async function loadConnectionsToSync(
   supabase: SupabaseClient,
+  brokerageId: string,
   connectionId: string | null
 ): Promise<IdxConnection[]> {
   let q = supabase
     .from("idx_connections")
     .select("id, brokerage_id, mls_name, connection_label, vendor_name, endpoint_url, api_key, status")
-    .eq("status", "live");
+    .eq("status", "live")
+    .eq("brokerage_id", brokerageId);
 
   if (connectionId) q = q.eq("id", connectionId);
 
@@ -181,12 +183,27 @@ async function loadConnectionsToSync(
 async function fetchResoVowUniverse(conn: IdxConnection, opts: { top: number; maxPages: number }) {
   const endpointUrl = conn.endpoint_url;
   const token = conn.api_key;
-
   if (!endpointUrl || !token) {
     throw new Error(`idx_connection ${conn.id} missing endpoint_url or api_key`);
   }
 
   const propertyEndpoint = toPropertyEndpoint(endpointUrl);
+
+  // MLSListings: $top limit is 300
+  const top = Math.max(1, Math.min(300, opts.top));
+
+  // Optional filter (comment out if MLS rejects it)
+  const soldWindowDays = 90;
+  const soldCutoff = new Date();
+  soldCutoff.setDate(soldCutoff.getDate() - soldWindowDays);
+  const soldCutoffStr = soldCutoff.toISOString().slice(0, 10);
+
+  const filterExpr =
+    "(" +
+    "StandardStatus eq 'Active'" +
+    " or StandardStatus eq 'Pending'" +
+    ` or (StandardStatus eq 'Closed' and CloseDate ge ${soldCutoffStr})` +
+    ")";
 
   const all: any[] = [];
   let skip = 0;
@@ -194,11 +211,11 @@ async function fetchResoVowUniverse(conn: IdxConnection, opts: { top: number; ma
   for (let page = 0; page < opts.maxPages; page++) {
     const url = new URL(propertyEndpoint);
 
-    // If filter causes errors, leave it off (you already noted this).
+    // If filter causes 400s, comment this line:
     // url.searchParams.set("$filter", filterExpr);
 
     url.searchParams.set("$orderby", "ModificationTimestamp desc");
-    url.searchParams.set("$top", String(opts.top));
+    url.searchParams.set("$top", String(top));
     url.searchParams.set("$skip", String(skip));
 
     const res = await fetch(url.toString(), {
@@ -217,19 +234,22 @@ async function fetchResoVowUniverse(conn: IdxConnection, opts: { top: number; ma
     const body = await res.json().catch(() => null);
     const value = body?.value;
 
-    if (!Array.isArray(value)) break;
-    if (value.length === 0) break;
+    if (!Array.isArray(value) || value.length === 0) break;
 
     all.push(...value);
 
-    if (value.length < opts.top) break;
-    skip += opts.top;
+    if (value.length < top) break; // last page
+    skip += top;
   }
 
   return all;
 }
 
-async function upsertListings(supabase: SupabaseClient, conn: IdxConnection, listings: NormalizedListing[]) {
+async function upsertListings(
+  supabase: SupabaseClient,
+  conn: IdxConnection,
+  listings: NormalizedListing[]
+) {
   const nowIso = new Date().toISOString();
 
   const rows = listings.map((l) => ({
@@ -273,6 +293,7 @@ async function upsertListings(supabase: SupabaseClient, conn: IdxConnection, lis
     .select("id");
 
   if (error) throw new Error(`Upsert mls_listings failed: ${error.message}`);
+
   return { upserted: data?.length ?? 0 };
 }
 
@@ -290,22 +311,39 @@ serve(async (req) => {
   }
 
   if (req.method !== "POST") {
-    return json(405, { error: "Use POST" }, cors);
+    return jsonResponse({ ok: false, error: "Use POST" }, 405, cors);
   }
 
   const supabase = getSupabaseAdmin();
 
-  // Require a valid logged-in Supabase user JWT (prevents random public abuse)
+  // Require a logged-in user (agent) to trigger ingest
   const authHeader = req.headers.get("authorization") ?? "";
-  const jwt = authHeader.toLowerCase().startsWith("bearer ")
-    ? authHeader.slice(7)
-    : "";
-
-  if (!jwt) return json(401, { error: "Missing Authorization bearer token" }, cors);
+  const jwt = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7) : "";
+  if (!jwt) return jsonResponse({ ok: false, error: "Missing Authorization bearer token" }, 401, cors);
 
   const { data: authData, error: authErr } = await supabase.auth.getUser(jwt);
   if (authErr || !authData?.user) {
-    return json(401, { error: "Invalid session" }, cors);
+    return jsonResponse({ ok: false, error: "Invalid session" }, 401, cors);
+  }
+
+  const agentId = authData.user.id;
+
+  // Load agent brokerage_id (scope)
+  const { data: agentRow, error: agentRowErr } = await supabase
+    .from("agents")
+    .select("id, brokerage_id")
+    .eq("id", agentId)
+    .maybeSingle();
+
+  if (agentRowErr) return jsonResponse({ ok: false, error: agentRowErr.message }, 500, cors);
+
+  const brokerageId = (agentRow as any)?.brokerage_id ?? null;
+  if (!brokerageId) {
+    return jsonResponse(
+      { ok: false, error: "Agent is missing brokerage_id (cannot scope idx-sync)." },
+      400,
+      cors
+    );
   }
 
   try {
@@ -313,13 +351,9 @@ serve(async (req) => {
     const connectionId = url.searchParams.get("connection_id");
     const dryRun = url.searchParams.get("dry_run") === "1";
 
-    const connections = await loadConnectionsToSync(supabase, connectionId);
+    const connections = await loadConnectionsToSync(supabase, brokerageId, connectionId);
     if (connections.length === 0) {
-      return json(
-        200,
-        { ok: true, message: "No live IDX connections to sync", connectionId },
-        cors
-      );
+      return jsonResponse({ ok: true, message: "No live IDX connections to sync", connectionId }, 200, cors);
     }
 
     const results: any[] = [];
@@ -334,15 +368,12 @@ serve(async (req) => {
             last_error: "Missing endpoint_url or api_key on idx_connections row",
           });
 
-          results.push({
-            connection_id: conn.id,
-            ok: false,
-            error: "Missing endpoint_url or api_key",
-          });
+          results.push({ connection_id: conn.id, ok: false, error: "Missing endpoint_url or api_key" });
           continue;
         }
 
-        const raw = await fetchResoVowUniverse(conn, { top: 500, maxPages: 20 }); // up to 10k cap
+        // Use $top=300 and paginate
+        const raw = await fetchResoVowUniverse(conn, { top: 300, maxPages: 50 }); // up to 15k rows cap
         const mlsSource = conn.mls_name || conn.vendor_name || conn.endpoint_url;
 
         const normalized: NormalizedListing[] = raw
@@ -382,17 +413,13 @@ serve(async (req) => {
           last_error: e?.message ?? "IDX sync error",
         });
 
-        results.push({
-          connection_id: conn.id,
-          ok: false,
-          error: e?.message ?? "IDX sync error",
-        });
+        results.push({ connection_id: conn.id, ok: false, error: e?.message ?? "IDX sync error" });
       }
     }
 
-    return json(200, { ok: true, dry_run: dryRun, count: results.length, results }, cors);
+    return jsonResponse({ ok: true, dry_run: dryRun, count: results.length, results }, 200, cors);
   } catch (e: any) {
-    return json(500, { ok: false, error: e?.message ?? "Unhandled error" }, cors);
+    return jsonResponse({ ok: false, error: e?.message ?? "Unhandled error" }, 500, cors);
   }
 });
 
