@@ -73,20 +73,26 @@ function fmtDate(ts: string | null) {
 
 function buildAddressLine(l: MlsListingLite) {
   const parts: string[] = [];
+
   if (l.street_number) parts.push(l.street_number);
   if (l.street_dir_prefix) parts.push(l.street_dir_prefix);
   if (l.street_name) parts.push(l.street_name);
   if (l.street_suffix) parts.push(l.street_suffix);
+
   let addr = parts.join(' ').trim();
-  if (l.unit) addr = addr ? `${addr} #${l.unit}` : `#${l.unit}`;
-  return addr || l.listing_title || '(No address)';
+
+  if (l.unit) {
+    addr = addr ? `${addr} #${l.unit}` : `#${l.unit}`;
+  }
+
+  return (
+    addr ||
+    l.listing_title ||
+    `${l.city ?? ''}${l.city && l.state ? ', ' : ''}${l.state ?? ''}` ||
+    '(No address)'
+  );
 }
 
-function scoreLabel(score: number) {
-  if (score >= 85) return 'Strong';
-  if (score >= 65) return 'Good';
-  return 'Possible';
-}
 
 function normalizeReasons(reasons: any): string[] {
   if (Array.isArray(reasons)) return reasons.map(String);
