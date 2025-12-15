@@ -73,36 +73,14 @@ function fmtDate(ts: string | null) {
 
 function buildAddressLine(l: MlsListingLite) {
   const parts: string[] = [];
-
   if (l.street_number) parts.push(l.street_number);
   if (l.street_dir_prefix) parts.push(l.street_dir_prefix);
   if (l.street_name) parts.push(l.street_name);
   if (l.street_suffix) parts.push(l.street_suffix);
-
   let addr = parts.join(' ').trim();
-
-  if (l.unit) {
-    addr = addr ? `${addr} #${l.unit}` : `#${l.unit}`;
-  }
-
-  // ✅ MLS fallbacks (VERY IMPORTANT)
-  const raw =
-    l.raw_payload?.UnparsedAddress ||
-    l.raw_payload?.StreetAddress ||
-    l.raw_payload?.ListingTitle ||
-    null;
-
-  if (addr) return addr;
-  if (raw) return raw;
-
-  // Final graceful fallback
-  if (l.city || l.postal_code) {
-    return `${l.city ?? ''}${l.city && l.postal_code ? ' ' : ''}${l.postal_code ?? ''}`.trim();
-  }
-
-  return '(No address)';
+  if (l.unit) addr = addr ? `${addr} #${l.unit}` : `#${l.unit}`;
+  return addr || l.listing_title || '(No address)';
 }
-
 
 function scoreLabel(score: number) {
   if (score >= 85) return 'Strong';
@@ -398,7 +376,7 @@ export default function MatchesPage() {
       return;
     }
 
-    // 2) Attach to client (client_properties) — assumes these columns exist (as used in your portal page)
+    // 2) Attach to client (client_properties)
     const { error: cpErr } = await supabase
       .from('client_properties')
       .upsert(
@@ -591,7 +569,13 @@ export default function MatchesPage() {
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <div className="text-base font-semibold text-slate-50 truncate">
-                              <span className="text-[#EBD27A]">{addr}</span>
+                              {/* ✅ NOW LINKS TO DETAIL PAGE */}
+                              <Link
+                                href={`/matches/${encodeURIComponent(r.id)}`}
+                                className="text-[#EBD27A] hover:underline"
+                              >
+                                {addr}
+                              </Link>
                             </div>
 
                             <span
@@ -651,6 +635,12 @@ export default function MatchesPage() {
                               </div>
                             </div>
                           </div>
+
+                          <Link href={`/matches/${encodeURIComponent(r.id)}`}>
+                            <Button variant="secondary" className="w-full">
+                              View details
+                            </Button>
+                          </Link>
 
                           <Button
                             className="w-full"
