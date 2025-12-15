@@ -108,6 +108,13 @@ function normalizeReasons(reasons: any): string[] {
   return [];
 }
 
+function scoreLabel(score: number) {
+  if (score >= 85) return 'Strong';
+  if (score >= 65) return 'Good';
+  return 'Possible';
+}
+
+
 export default function MatchesPage() {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
