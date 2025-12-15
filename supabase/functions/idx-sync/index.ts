@@ -17,8 +17,8 @@ type IdxConnection = {
   mls_name: string | null;
   connection_label: string | null;
   vendor_name: string | null;
-  endpoint_url: string | null; // should be the base VOW url or Property endpoint
-  api_key: string | null;      // Bearer token (MLSListings Web API - VOW token)
+  endpoint_url: string | null; // base VOW url or Property endpoint
+  api_key: string | null; // Bearer token (MLSListings Web API - VOW token)
   status: IdxStatus | null;
 };
 
@@ -54,10 +54,22 @@ type NormalizedListing = {
   raw_payload: unknown;
 };
 
-function jsonResponse(body: unknown, status = 200): Response {
+function corsHeaders(origin: string | null) {
+  return {
+    "access-control-allow-origin": origin ?? "*",
+    "access-control-allow-headers":
+      "authorization, x-client-info, apikey, content-type",
+    "access-control-allow-methods": "POST, OPTIONS",
+  };
+}
+
+function json(status: number, body: Record<string, unknown>, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body, null, 2), {
     status,
-    headers: { "Content-Type": "application/json; charset=utf-8" },
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...headers,
+    },
   });
 }
 
@@ -73,7 +85,7 @@ function getSupabaseAdmin(): SupabaseClient {
 // endpoint_url might be:
 // - https://vendordata.api-v2.mlslistings.com/vow
 // - https://vendordata.api-v2.mlslistings.com/vow/Property
-// We normalize to a Property endpoint.
+// Normalize to Property endpoint.
 function toPropertyEndpoint(endpointUrl: string): string {
   const trimmed = endpointUrl.replace(/\/+$/, "");
   if (trimmed.toLowerCase().endsWith("/property")) return trimmed;
@@ -89,7 +101,6 @@ function toNumber(val: unknown): number | null {
 function toDateOnly(val: unknown): string | null {
   if (val == null) return null;
   const s = String(val);
-  // allow "YYYY-MM-DD" or ISO timestamp; return YYYY-MM-DD if possible
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
@@ -135,7 +146,7 @@ function mapResoPropertyToNormalized(record: any, mlsSource: string | null): Nor
     baths: toNumber(record.BathroomsTotalInteger ?? record.BathroomsTotal),
     sqft: toNumber(record.LivingArea ?? record.BuildingAreaTotal),
     lot_sqft: toNumber(record.LotSizeSquareFeet),
-    year_built: (toNumber(record.YearBuilt) as number | null),
+    year_built: toNumber(record.YearBuilt),
     street_number: record.StreetNumber ?? null,
     street_dir_prefix: record.StreetDirPrefix ?? null,
     street_name: record.StreetName ?? null,
@@ -177,27 +188,13 @@ async function fetchResoVowUniverse(conn: IdxConnection, opts: { top: number; ma
 
   const propertyEndpoint = toPropertyEndpoint(endpointUrl);
 
-  // Basic filter: active + pending + recently closed (optional)
-  // NOTE: If MLSListings rejects filter, you can comment it out and still pull data.
-  const soldWindowDays = 90;
-  const soldCutoff = new Date();
-  soldCutoff.setDate(soldCutoff.getDate() - soldWindowDays);
-  const soldCutoffStr = soldCutoff.toISOString().slice(0, 10);
-
-  const filterExpr =
-    "(" +
-    "StandardStatus eq 'Active'" +
-    " or StandardStatus eq 'Pending'" +
-    ` or (StandardStatus eq 'Closed' and CloseDate ge ${soldCutoffStr})` +
-    ")";
-
   const all: any[] = [];
   let skip = 0;
 
   for (let page = 0; page < opts.maxPages; page++) {
     const url = new URL(propertyEndpoint);
 
-    // If filter causes errors, comment next line:
+    // If filter causes errors, leave it off (you already noted this).
     // url.searchParams.set("$filter", filterExpr);
 
     url.searchParams.set("$orderby", "ModificationTimestamp desc");
@@ -225,9 +222,7 @@ async function fetchResoVowUniverse(conn: IdxConnection, opts: { top: number; ma
 
     all.push(...value);
 
-    // last page?
     if (value.length < opts.top) break;
-
     skip += opts.top;
   }
 
@@ -270,17 +265,14 @@ async function upsertListings(supabase: SupabaseClient, conn: IdxConnection, lis
     latitude: l.latitude,
     longitude: l.longitude,
     raw_payload: l.raw_payload ?? null,
-    // NOTE: do NOT write is_active/is_pending/is_sold here.
   }));
 
-  // IMPORTANT: onConflict must match the UNIQUE constraint you added.
   const { data, error } = await supabase
     .from("mls_listings")
     .upsert(rows, { onConflict: "idx_connection_id,mls_number" })
     .select("id");
 
   if (error) throw new Error(`Upsert mls_listings failed: ${error.message}`);
-
   return { upserted: data?.length ?? 0 };
 }
 
@@ -290,7 +282,31 @@ async function markConnection(supabase: SupabaseClient, id: string, patch: Recor
 }
 
 serve(async (req) => {
+  const origin = req.headers.get("origin");
+  const cors = corsHeaders(origin);
+
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: cors });
+  }
+
+  if (req.method !== "POST") {
+    return json(405, { error: "Use POST" }, cors);
+  }
+
   const supabase = getSupabaseAdmin();
+
+  // Require a valid logged-in Supabase user JWT (prevents random public abuse)
+  const authHeader = req.headers.get("authorization") ?? "";
+  const jwt = authHeader.toLowerCase().startsWith("bearer ")
+    ? authHeader.slice(7)
+    : "";
+
+  if (!jwt) return json(401, { error: "Missing Authorization bearer token" }, cors);
+
+  const { data: authData, error: authErr } = await supabase.auth.getUser(jwt);
+  if (authErr || !authData?.user) {
+    return json(401, { error: "Invalid session" }, cors);
+  }
 
   try {
     const url = new URL(req.url);
@@ -299,7 +315,11 @@ serve(async (req) => {
 
     const connections = await loadConnectionsToSync(supabase, connectionId);
     if (connections.length === 0) {
-      return jsonResponse({ ok: true, message: "No live IDX connections to sync", connectionId }, 200);
+      return json(
+        200,
+        { ok: true, message: "No live IDX connections to sync", connectionId },
+        cors
+      );
     }
 
     const results: any[] = [];
@@ -322,7 +342,7 @@ serve(async (req) => {
           continue;
         }
 
-        const raw = await fetchResoVowUniverse(conn, { top: 500, maxPages: 20 }); // up to 10k rows cap
+        const raw = await fetchResoVowUniverse(conn, { top: 500, maxPages: 20 }); // up to 10k cap
         const mlsSource = conn.mls_name || conn.vendor_name || conn.endpoint_url;
 
         const normalized: NormalizedListing[] = raw
@@ -370,10 +390,9 @@ serve(async (req) => {
       }
     }
 
-    return jsonResponse({ ok: true, dry_run: dryRun, count: results.length, results }, 200);
+    return json(200, { ok: true, dry_run: dryRun, count: results.length, results }, cors);
   } catch (e: any) {
-    return jsonResponse({ ok: false, error: e?.message ?? "Unhandled error" }, 500);
+    return json(500, { ok: false, error: e?.message ?? "Unhandled error" }, cors);
   }
 });
-
 
