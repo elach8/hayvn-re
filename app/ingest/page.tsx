@@ -1,4 +1,4 @@
-// app/ingest/page.tsx (or wherever this page lives)
+// /app/ingest/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -21,6 +21,7 @@ export default function IngestPage() {
     setResult(null);
     setAuthMsg(null);
 
+    // Ensure session so we can send Authorization header
     const {
       data: { session },
       error: sessErr,
@@ -38,23 +39,55 @@ export default function IngestPage() {
       return;
     }
 
-    // ✅ IMPORTANT: include_photos=1 so idx-sync pulls /Media and populates mls_listing_photos
-    const { data, error } = await supabase.functions.invoke(
-  'idx-sync?include_photos=1&top=100&prop_pages=1&photo_listing_limit=30',
-  { body: {} }
-);
-;
+    const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-
-
-    if (error) {
-      setErr(error.message || 'IDX sync failed');
+    if (!base || !anon) {
+      setErr('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY');
       setStatus('error');
       return;
     }
 
-    setResult(data);
-    setStatus('done');
+    // Knobs (keep these conservative to avoid MLS timeouts)
+    const qs = new URLSearchParams({
+      include_photos: '1',
+      top: '100',
+      prop_pages: '1',
+      photo_listing_limit: '30',
+      // dry_run: '1', // enable if you want to test without writing
+      // connection_id: '...', // optional later
+    }).toString();
+
+    try {
+      const res = await fetch(`${base}/functions/v1/idx-sync?${qs}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: anon,
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({}),
+      });
+
+      const text = await res.text();
+
+      if (!res.ok) {
+        setErr(`HTTP ${res.status}: ${text.slice(0, 800)}`);
+        setStatus('error');
+        return;
+      }
+
+      try {
+        setResult(JSON.parse(text));
+      } catch {
+        setResult(text);
+      }
+
+      setStatus('done');
+    } catch (e: any) {
+      setErr(e?.message ?? 'Request failed');
+      setStatus('error');
+    }
   };
 
   useEffect(() => {
@@ -71,7 +104,7 @@ export default function IngestPage() {
               Ingest
             </h1>
             <p className="text-sm text-slate-300">
-              Visiting this page runs <code className="font-mono">idx-sync</code> (with photos).
+              Visiting this page runs <code className="font-mono">idx-sync</code>.
             </p>
           </div>
           <Link href="/dashboard" className="text-sm text-slate-400 hover:underline">
@@ -100,7 +133,7 @@ export default function IngestPage() {
 
           {result && (
             <pre className="text-xs whitespace-pre-wrap rounded-xl border border-white/10 bg-black/40 p-3 text-slate-200">
-              {JSON.stringify(result, null, 2)}
+              {typeof result === 'string' ? result : JSON.stringify(result, null, 2)}
             </pre>
           )}
 
@@ -117,6 +150,11 @@ export default function IngestPage() {
             >
               Reload page
             </Button>
+          </div>
+
+          <div className="text-[11px] text-slate-500">
+            Tip: This call includes <span className="text-slate-300">include_photos=1</span> and
+            conservative paging knobs to avoid MLS timeouts.
           </div>
         </Card>
       </div>
