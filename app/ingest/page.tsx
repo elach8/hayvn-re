@@ -39,9 +39,11 @@ export default function IngestPage() {
     }
 
     // ✅ IMPORTANT: include_photos=1 so idx-sync pulls /Media and populates mls_listing_photos
-    const { data, error } = await supabase.functions.invoke('idx-sync?include_photos=1', {
-      body: {},
-    });
+    const { data, error } = await supabase.functions.invoke(
+      'idx-sync?include_photos=1&top=100&prop_pages=1&media_pages=1&photo_listing_limit=30',
+      { body: {} }
+    );
+
 
     if (error) {
       setErr(error.message || 'IDX sync failed');
