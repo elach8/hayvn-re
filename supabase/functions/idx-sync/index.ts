@@ -1,8 +1,9 @@
 // supabase/functions/idx-sync/index.ts
 // IDX sync for Hayvn-RE (MLSListings Web API - VOW, RESO OData).
-// - Syncs the VOW universe per live idx_connection
+// - Syncs Property per live idx_connection
 // - Upserts into mls_listings keyed by (idx_connection_id, mls_number)
-// - Fetches photos via /Media and writes mls_listing_photos in BATCHES (to avoid timeouts)
+// - Fetches photos via Media PER LISTING (avoids global Media timeout)
+// - Writes mls_listing_photos
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -15,8 +16,8 @@ type IdxConnection = {
   mls_name: string | null;
   connection_label: string | null;
   vendor_name: string | null;
-  endpoint_url: string | null;
-  api_key: string | null;
+  endpoint_url: string | null; // base VOW url OR Property endpoint
+  api_key: string | null; // Bearer token
   status: IdxStatus | null;
 };
 
@@ -217,9 +218,14 @@ async function loadConnectionsToSync(
   return (data ?? []) as IdxConnection[];
 }
 
-async function fetchReso(
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+async function fetchResoProperty(
   conn: IdxConnection,
-  entity: "Property" | "Media",
   opts: { top: number; maxPages: number }
 ) {
   const endpointUrl = conn.endpoint_url;
@@ -229,10 +235,7 @@ async function fetchReso(
     throw new Error(`idx_connection ${conn.id} missing endpoint_url or api_key`);
   }
 
-  const base = entity === "Property"
-    ? toPropertyEndpoint(endpointUrl)
-    : toMediaEndpoint(endpointUrl);
-
+  const base = toPropertyEndpoint(endpointUrl);
   const safeTop = Math.min(300, Math.max(1, opts.top));
 
   const all: any[] = [];
@@ -254,7 +257,7 @@ async function fetchReso(
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      throw new Error(`MLS HTTP ${res.status} ${res.statusText}: ${text.slice(0, 500)}`);
+      throw new Error(`MLS Property HTTP ${res.status} ${res.statusText}: ${text.slice(0, 500)}`);
     }
 
     const body = await res.json().catch(() => null);
@@ -352,95 +355,43 @@ function extractMediaCaption(m: any): string | null {
   return s ? s : null;
 }
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
+async function fetchMediaForListing(
+  conn: IdxConnection,
+  opts: { top: number; mlsNumber: string }
+): Promise<any[]> {
+  const endpointUrl = conn.endpoint_url;
+  const token = conn.api_key;
 
-async function writePhotosForListingsBatched(
-  supabase: SupabaseClient,
-  listingRows: UpsertedListingRow[],
-  mediaRecords: any[],
-  photoListingLimit: number
-): Promise<{ photos_written: number; listings_with_media: number }> {
-  const idByKey = new Map<string, string>();
-  for (const r of listingRows) idByKey.set(r.mls_number, r.id);
-
-  // Group media by ListingKey-ish field
-  const mediaByKey = new Map<string, any[]>();
-  for (const m of mediaRecords ?? []) {
-    const key =
-      m.ListingKey ??
-      m.ListingId ??
-      (m.ListingKeyNumeric != null ? String(m.ListingKeyNumeric) : null) ??
-      m.ResourceRecordKey ??
-      null;
-
-    if (!key) continue;
-
-    const k = String(key);
-    if (!mediaByKey.has(k)) mediaByKey.set(k, []);
-    mediaByKey.get(k)!.push(m);
+  if (!endpointUrl || !token) {
+    throw new Error(`idx_connection ${conn.id} missing endpoint_url or api_key`);
   }
 
-  // Only process listings we actually have media for
-  const listingIdsToReplace: string[] = [];
-  const rowsToInsert: { listing_id: string; sort_order: number; url: string; caption: string | null }[] = [];
+  const base = toMediaEndpoint(endpointUrl);
+  const safeTop = Math.min(300, Math.max(1, opts.top));
 
-  // Limit how many listings we do photos for in one run (to avoid timeout)
-  let processedListings = 0;
+  const url = new URL(base);
+  url.searchParams.set("$top", String(safeTop));
 
-  for (const [mlsNumber, listingId] of idByKey.entries()) {
-    const media = mediaByKey.get(mlsNumber) ?? [];
-    if (media.length === 0) continue;
+  // MLSListings commonly uses ListingId == MLS#
+  url.searchParams.set("$filter", `ListingId eq '${opts.mlsNumber}'`);
 
-    processedListings++;
-    if (processedListings > photoListingLimit) break;
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    },
+  });
 
-    media.sort((a, b) => {
-      const ao = extractMediaOrder(a) ?? 999999;
-      const bo = extractMediaOrder(b) ?? 999999;
-      return ao - bo;
-    });
-
-    listingIdsToReplace.push(listingId);
-
-    media.forEach((m, idx) => {
-      const url = extractMediaUrl(m);
-      if (!url) return;
-      rowsToInsert.push({
-        listing_id: listingId,
-        sort_order: extractMediaOrder(m) ?? idx,
-        url,
-        caption: extractMediaCaption(m),
-      });
-    });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`MLS Media HTTP ${res.status} ${res.statusText}: ${text.slice(0, 500)}`);
   }
 
-  if (listingIdsToReplace.length === 0 || rowsToInsert.length === 0) {
-    return { photos_written: 0, listings_with_media: 0 };
-  }
+  const body = await res.json().catch(() => null);
+  const value = body?.value;
 
-  // 1) Bulk delete (chunked because .in() has practical limits)
-  for (const idChunk of chunk(listingIdsToReplace, 200)) {
-    const { error } = await supabase
-      .from("mls_listing_photos")
-      .delete()
-      .in("listing_id", idChunk);
-
-    if (error) throw new Error(`Delete photos failed: ${error.message}`);
-  }
-
-  // 2) Bulk insert (chunked)
-  let inserted = 0;
-  for (const rowChunk of chunk(rowsToInsert, 1000)) {
-    const { error } = await supabase.from("mls_listing_photos").insert(rowChunk);
-    if (error) throw new Error(`Insert photos failed: ${error.message}`);
-    inserted += rowChunk.length;
-  }
-
-  return { photos_written: inserted, listings_with_media: listingIdsToReplace.length };
+  return Array.isArray(value) ? value : [];
 }
 
 async function markConnection(supabase: SupabaseClient, id: string, patch: Record<string, unknown>) {
@@ -463,15 +414,15 @@ serve(async (req) => {
 
   try {
     const url = new URL(req.url);
+
     const connectionId = url.searchParams.get("connection_id");
     const dryRun = url.searchParams.get("dry_run") === "1";
     const includePhotos = url.searchParams.get("include_photos") === "1";
 
-    // ✅ new knobs to avoid timeouts
-    const top = Math.min(300, Math.max(1, Number(url.searchParams.get("top") ?? "300")));
-    const propPages = Math.max(1, Number(url.searchParams.get("prop_pages") ?? "2"));   // default 2 pages (600)
-    const mediaPages = Math.max(1, Number(url.searchParams.get("media_pages") ?? "4")); // default 4 pages (1200)
-    const photoListingLimit = Math.max(10, Number(url.searchParams.get("photo_listing_limit") ?? "120"));
+    // knobs
+    const top = Math.min(300, Math.max(1, Number(url.searchParams.get("top") ?? "100")));
+    const propPages = Math.max(1, Number(url.searchParams.get("prop_pages") ?? "1"));
+    const photoListingLimit = Math.max(1, Number(url.searchParams.get("photo_listing_limit") ?? "30"));
 
     const connections = await loadConnectionsToSync(supabase, connectionId);
     if (connections.length === 0) {
@@ -494,7 +445,7 @@ serve(async (req) => {
           continue;
         }
 
-        const rawProps = await fetchReso(conn, "Property", { top, maxPages: propPages });
+        const rawProps = await fetchResoProperty(conn, { top, maxPages: propPages });
         const mlsSource = conn.mls_name || conn.vendor_name || conn.endpoint_url;
 
         const normalized: NormalizedListing[] = rawProps
@@ -509,7 +460,7 @@ serve(async (req) => {
             fetched_raw: rawProps.length,
             normalized: normalized.length,
             includePhotos,
-            knobs: { top, propPages, mediaPages, photoListingLimit },
+            knobs: { top, propPages, photoListingLimit },
           });
           await markConnection(supabase, conn.id, { last_status_at: startedAt, last_error: null });
           continue;
@@ -519,21 +470,57 @@ serve(async (req) => {
 
         let photos_written = 0;
         let listings_with_media = 0;
-        let fetched_media = 0;
+        let media_calls = 0;
 
         if (includePhotos && upsertedRows.length > 0) {
-          const rawMedia = await fetchReso(conn, "Media", { top, maxPages: mediaPages });
-          fetched_media = rawMedia.length;
+          const limited = upsertedRows.slice(0, photoListingLimit);
 
-          const photoRes = await writePhotosForListingsBatched(
-            supabase,
-            upsertedRows,
-            rawMedia,
-            photoListingLimit
-          );
+          // Bulk delete existing photos for these listings
+          const listingIds = limited.map((r) => r.id);
+          for (const idChunk of chunk(listingIds, 200)) {
+            const { error } = await supabase
+              .from("mls_listing_photos")
+              .delete()
+              .in("listing_id", idChunk);
 
-          photos_written = photoRes.photos_written;
-          listings_with_media = photoRes.listings_with_media;
+            if (error) throw new Error(`Delete photos failed: ${error.message}`);
+          }
+
+          // Fetch media per listing + insert
+          for (const r of limited) {
+            const media = await fetchMediaForListing(conn, { top: 300, mlsNumber: r.mls_number });
+            media_calls++;
+
+            if (!media.length) continue;
+            listings_with_media++;
+
+            media.sort((a, b) => {
+              const ao = extractMediaOrder(a) ?? 999999;
+              const bo = extractMediaOrder(b) ?? 999999;
+              return ao - bo;
+            });
+
+            const photoRows = media
+              .map((m, idx) => {
+                const u = extractMediaUrl(m);
+                if (!u) return null;
+                return {
+                  listing_id: r.id,
+                  sort_order: extractMediaOrder(m) ?? idx,
+                  url: u,
+                  caption: extractMediaCaption(m),
+                };
+              })
+              .filter(Boolean) as { listing_id: string; sort_order: number; url: string; caption: string | null }[];
+
+            if (!photoRows.length) continue;
+
+            for (const batch of chunk(photoRows, 1000)) {
+              const { error } = await supabase.from("mls_listing_photos").insert(batch);
+              if (error) throw new Error(`Insert photos failed: ${error.message}`);
+              photos_written += batch.length;
+            }
+          }
         }
 
         await markConnection(supabase, conn.id, {
@@ -548,9 +535,9 @@ serve(async (req) => {
           upserted,
           photos_written,
           listings_with_media,
+          media_calls,
           fetched_raw: rawProps.length,
-          fetched_media,
-          knobs: { top, propPages, mediaPages, photoListingLimit },
+          knobs: { top, propPages, photoListingLimit },
         });
       } catch (e: any) {
         await markConnection(supabase, conn.id, {
