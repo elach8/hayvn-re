@@ -1,3 +1,4 @@
+// app/ingest/page.tsx (or wherever this page lives)
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -20,7 +21,6 @@ export default function IngestPage() {
     setResult(null);
     setAuthMsg(null);
 
-    // Make sure we have a session so invoke sends the Authorization header
     const {
       data: { session },
       error: sessErr,
@@ -38,8 +38,9 @@ export default function IngestPage() {
       return;
     }
 
-    const { data, error } = await supabase.functions.invoke('idx-sync', {
-      body: {}, // optional later: { connection_id: '...' }
+    // ✅ IMPORTANT: include_photos=1 so idx-sync pulls /Media and populates mls_listing_photos
+    const { data, error } = await supabase.functions.invoke('idx-sync?include_photos=1', {
+      body: {},
     });
 
     if (error) {
@@ -66,7 +67,7 @@ export default function IngestPage() {
               Ingest
             </h1>
             <p className="text-sm text-slate-300">
-              Visiting this page runs <code className="font-mono">idx-sync</code>.
+              Visiting this page runs <code className="font-mono">idx-sync</code> (with photos).
             </p>
           </div>
           <Link href="/dashboard" className="text-sm text-slate-400 hover:underline">
@@ -100,11 +101,7 @@ export default function IngestPage() {
           )}
 
           <div className="flex flex-col sm:flex-row gap-2">
-            <Button
-              onClick={runOnce}
-              className="w-full sm:w-auto"
-              disabled={status === 'running'}
-            >
+            <Button onClick={runOnce} className="w-full sm:w-auto" disabled={status === 'running'}>
               {status === 'running' ? 'Running…' : 'Run again'}
             </Button>
 
