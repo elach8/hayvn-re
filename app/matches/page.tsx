@@ -1,9 +1,10 @@
 // /app/matches/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 
@@ -71,32 +72,81 @@ function fmtDate(ts: string | null) {
   return d.toLocaleString();
 }
 
-function buildAddressLine(l: MlsListingLite) {
-  const parts: string[] = [];
-
-  if (l.street_number) parts.push(l.street_number);
-  if (l.street_dir_prefix) parts.push(l.street_dir_prefix);
-  if (l.street_name) parts.push(l.street_name);
-  if (l.street_suffix) parts.push(l.street_suffix);
-
-  let addr = parts.join(' ').trim();
-
-  if (l.unit) {
-    addr = addr ? `${addr} #${l.unit}` : `#${l.unit}`;
+function safeStr(v: any): string | null {
+  if (v == null) return null;
+  if (typeof v === 'string') {
+    const s = v.trim();
+    return s ? s : null;
   }
-
-  return (
-    addr ||
-    l.listing_title ||
-    `${l.city ?? ''}${l.city && l.state ? ', ' : ''}${l.state ?? ''}` ||
-    '(No address)'
-  );
+  return null;
 }
 
+function buildStreetLineFromStructured(l: MlsListingLite) {
+  const parts: string[] = [];
+  if (safeStr(l.street_number)) parts.push(String(l.street_number).trim());
+  if (safeStr(l.street_dir_prefix)) parts.push(String(l.street_dir_prefix).trim());
+  if (safeStr(l.street_name)) parts.push(String(l.street_name).trim());
+  if (safeStr(l.street_suffix)) parts.push(String(l.street_suffix).trim());
+
+  let addr = parts.join(' ').replace(/\s+/g, ' ').trim();
+
+  const unit = safeStr(l.unit);
+  if (unit) addr = addr ? `${addr} #${unit}` : `#${unit}`;
+
+  return addr || null;
+}
+
+function buildStreetLineFromRawPayload(raw: any) {
+  const rp = raw ?? {};
+
+  // Common MLS payload keys we’ve seen across feeds
+  const candidates = [
+    rp.UnparsedAddress,
+    rp.UnparsedFirstLineAddress,
+    rp.UnparsedFirstLine,
+    rp.StreetAddress,
+    rp.AddressLine1,
+    rp.FullStreetAddress,
+    rp.PropertyAddress,
+    rp.Address, // sometimes includes full street line
+    rp.StreetNumber && rp.StreetName
+      ? `${rp.StreetNumber} ${rp.StreetDirPrefix ?? ''} ${rp.StreetName} ${rp.StreetSuffix ?? ''}`
+      : null,
+    rp.StreetNumber && rp.StreetName && rp.UnitNumber
+      ? `${rp.StreetNumber} ${rp.StreetName} #${rp.UnitNumber}`
+      : null,
+  ]
+    .map(safeStr)
+    .filter(Boolean) as string[];
+
+  if (candidates.length === 0) return null;
+
+  // If "Address" contains commas, take the first segment as street
+  const first = candidates[0]!;
+  const streetOnly = first.includes(',') ? first.split(',')[0].trim() : first.trim();
+  return streetOnly || null;
+}
+
+/**
+ * IMPORTANT: This returns a STREET LINE first.
+ * It WILL NOT fall back to city/state unless everything else is missing.
+ */
+function buildStreetAddress(l: MlsListingLite) {
+  const structured = buildStreetLineFromStructured(l);
+  if (structured) return structured;
+
+  const fromRaw = buildStreetLineFromRawPayload(l.raw_payload);
+  if (fromRaw) return fromRaw;
+
+  // last-resort fallbacks (still not city/state)
+  const title = safeStr(l.listing_title);
+  if (title) return title;
+
+  return '(No address)';
+}
 
 function normalizeReasons(reasons: any): string[] {
   if (Array.isArray(reasons)) return reasons.map(String);
-  // sometimes jsonb can come back as stringified
   if (typeof reasons === 'string') {
     try {
       const parsed = JSON.parse(reasons);
@@ -114,8 +164,11 @@ function scoreLabel(score: number) {
   return 'Possible';
 }
 
+const MATCHES_RESTORE_KEY = 'hayvnre:matches:restore';
 
 export default function MatchesPage() {
+  const router = useRouter();
+
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -129,10 +182,40 @@ export default function MatchesPage() {
   const [recs, setRecs] = useState<RecommendationRow[]>([]);
   const [actionId, setActionId] = useState<string | null>(null);
 
+  // restore target card
+  const restoreFocusIdRef = useRef<string | null>(null);
+  const restoreScrollYRef = useRef<number | null>(null);
+
   const selectedClient = useMemo(
     () => clients.find((c) => c.id === selectedClientId) ?? null,
     [clients, selectedClientId]
   );
+
+  const saveRestoreState = (focusRecId: string) => {
+    try {
+      const payload = {
+        selectedClientId,
+        scrollY: typeof window !== 'undefined' ? window.scrollY : 0,
+        focusRecId,
+        ts: Date.now(),
+      };
+      sessionStorage.setItem(MATCHES_RESTORE_KEY, JSON.stringify(payload));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const readRestoreState = () => {
+    try {
+      const raw = sessionStorage.getItem(MATCHES_RESTORE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      return parsed as { selectedClientId?: string; scrollY?: number; focusRecId?: string };
+    } catch {
+      return null;
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -177,7 +260,6 @@ export default function MatchesPage() {
         .order('created_at', { ascending: false })
         .limit(500);
 
-      // show brokerage clients + direct agent clients
       if (a.brokerage_id) {
         q = q.or(`brokerage_id.eq.${a.brokerage_id},agent_id.eq.${a.id}`);
       } else {
@@ -192,6 +274,16 @@ export default function MatchesPage() {
       }
 
       setClients((clientRows ?? []) as ClientRow[]);
+
+      // Restore selection + scroll/card focus if coming back from detail
+      const restore = readRestoreState();
+      if (restore?.selectedClientId) {
+        setSelectedClientId(restore.selectedClientId);
+        restoreFocusIdRef.current = restore.focusRecId ?? null;
+        restoreScrollYRef.current =
+          typeof restore.scrollY === 'number' ? restore.scrollY : null;
+      }
+
       setLoading(false);
     };
 
@@ -202,7 +294,6 @@ export default function MatchesPage() {
     setRecsLoading(true);
     setError(null);
 
-    // Pull both NEW + ATTACHED so agent can see what’s already been pushed
     const { data, error } = await supabase
       .from('property_recommendations')
       .select(
@@ -251,7 +342,6 @@ export default function MatchesPage() {
       return;
     }
 
-    // Ensure NEW appears first (UI-only sort)
     const rows = ((data ?? []) as any[]).sort((a, b) => {
       const aNew = a.status === 'new' ? 0 : 1;
       const bNew = b.status === 'new' ? 0 : 1;
@@ -263,6 +353,36 @@ export default function MatchesPage() {
     setRecsLoading(false);
   };
 
+  // After we load recs, if we have a restore scroll/card target, apply it once.
+  useEffect(() => {
+    if (recsLoading) return;
+    if (!recs || recs.length === 0) return;
+
+    const focusId = restoreFocusIdRef.current;
+    const scrollY = restoreScrollYRef.current;
+
+    // only attempt restore once per return
+    restoreFocusIdRef.current = null;
+    restoreScrollYRef.current = null;
+
+    // Prefer scrolling to the exact card
+    if (focusId) {
+      const el = document.getElementById(`rec-${focusId}`);
+      if (el) {
+        // align card nicely
+        el.scrollIntoView({ block: 'start' });
+        // small offset for header spacing
+        window.scrollBy({ top: -12, left: 0 });
+        return;
+      }
+    }
+
+    // fallback to raw scrollY
+    if (typeof scrollY === 'number') {
+      window.scrollTo({ top: scrollY, left: 0 });
+    }
+  }, [recsLoading, recs]);
+
   const handleSelectClient = async (clientId: string) => {
     setSelectedClientId(clientId);
     setRecs([]);
@@ -270,6 +390,15 @@ export default function MatchesPage() {
       await loadRecommendations(clientId);
     }
   };
+
+  // If selectedClientId is restored on mount, load recs automatically
+  useEffect(() => {
+    if (!selectedClientId) return;
+    // If we already loaded recs for this selection, skip
+    if (recs.length > 0) return;
+    loadRecommendations(selectedClientId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedClientId]);
 
   const handleRefresh = async () => {
     if (!selectedClientId) return;
@@ -324,7 +453,6 @@ export default function MatchesPage() {
       return;
     }
 
-    // Use client brokerage_id first, fallback to agent brokerage_id
     const brokerage_id = selectedClient?.brokerage_id ?? agent?.brokerage_id ?? null;
     if (!brokerage_id) {
       setError('Attach failed: client/agent is not linked to a brokerage_id.');
@@ -334,16 +462,15 @@ export default function MatchesPage() {
     setActionId(rec.id);
     setError(null);
 
-    const address = buildAddressLine(l);
+    const address = buildStreetAddress(l);
 
-    // Best-effort photo URL from raw_payload if present
     const primaryPhotoUrl =
       l?.raw_payload?.ThumbnailUrl ||
       l?.raw_payload?.thumbnailUrl ||
       l?.raw_payload?.PrimaryPhotoUrl ||
+      l?.raw_payload?.primaryPhotoUrl ||
       null;
 
-    // 1) Upsert into properties using YOUR schema (mls_id is TEXT; use mls_number)
     const { data: propRows, error: propErr } = await supabase
       .from('properties')
       .upsert(
@@ -351,8 +478,8 @@ export default function MatchesPage() {
           brokerage_id,
           agent_id: agent?.id ?? null,
 
-          mls_id: l.mls_number, // <-- canonical key in your properties table
-          address,
+          mls_id: l.mls_number,
+          address, // STREET LINE
           city: l.city ?? '',
           state: l.state ?? '',
           zip: l.postal_code ?? '',
@@ -369,7 +496,6 @@ export default function MatchesPage() {
           pipeline_stage: 'suggested',
 
           primary_photo_url: primaryPhotoUrl,
-          // mls_url: null, // optional later
         },
         { onConflict: 'brokerage_id,mls_id' as any }
       )
@@ -389,7 +515,6 @@ export default function MatchesPage() {
       return;
     }
 
-    // 2) Attach to client (client_properties)
     const { error: cpErr } = await supabase
       .from('client_properties')
       .upsert(
@@ -411,14 +536,12 @@ export default function MatchesPage() {
       return;
     }
 
-    // 3) Mark recommendation as attached
     const { error: recErr } = await supabase
       .from('property_recommendations')
       .update({ status: 'attached' })
       .eq('id', rec.id);
 
     if (recErr) {
-      // not fatal—client attachment succeeded
       setError(`Attached, but could not update recommendation status: ${recErr.message}`);
     }
 
@@ -435,16 +558,12 @@ export default function MatchesPage() {
               Matches
             </h1>
             <p className="text-sm text-slate-300 max-w-3xl">
-              Generate recommendations from{' '}
-              <code className="font-mono">mls_listings</code>, then attach the best fits to a
-              client’s portal.
+              Generate recommendations from <code className="font-mono">mls_listings</code>, then
+              attach the best fits to a client’s portal.
             </p>
           </div>
 
-          <Link
-            href="/"
-            className="text-sm text-slate-400 hover:text-slate-200 hover:underline"
-          >
+          <Link href="/" className="text-sm text-slate-400 hover:text-slate-200 hover:underline">
             ← Back
           </Link>
         </header>
@@ -545,9 +664,7 @@ export default function MatchesPage() {
                 Showing <span className="font-semibold">{recs.length}</span> recommendation
                 {recs.length === 1 ? '' : 's'}
               </span>
-              <span className="text-[11px] text-slate-400">
-                New first • then attached
-              </span>
+              <span className="text-[11px] text-slate-400">New first • then attached</span>
             </div>
 
             {recsLoading ? (
@@ -567,7 +684,8 @@ export default function MatchesPage() {
               <ul className="space-y-3">
                 {recs.map((r) => {
                   const l = r.mls_listings;
-                  const addr = l ? buildAddressLine(l) : 'Listing';
+                  const addr = l ? buildStreetAddress(l) : 'Listing';
+
                   const meta = l
                     ? `${l.city ?? '—'}${l.state ? `, ${l.state}` : ''}${
                         l.postal_code ? ` ${l.postal_code}` : ''
@@ -576,19 +694,30 @@ export default function MatchesPage() {
 
                   const reasons = normalizeReasons(r.reasons);
 
+                  const detailHref = `/matches/${encodeURIComponent(r.id)}`;
+
+                  const onOpenDetail = () => {
+                    saveRestoreState(r.id);
+                    router.push(detailHref);
+                  };
+
                   return (
-                    <li key={r.id} className="rounded-2xl border border-white/10 bg-black/40 p-4">
+                    <li
+                      key={r.id}
+                      id={`rec-${r.id}`}
+                      className="rounded-2xl border border-white/10 bg-black/40 p-4"
+                    >
                       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <div className="text-base font-semibold text-slate-50 truncate">
-                              {/* ✅ NOW LINKS TO DETAIL PAGE */}
-                              <Link
-                                href={`/matches/${encodeURIComponent(r.id)}`}
-                                className="text-[#EBD27A] hover:underline"
+                              <button
+                                type="button"
+                                onClick={onOpenDetail}
+                                className="text-left text-[#EBD27A] hover:underline"
                               >
                                 {addr}
-                              </Link>
+                              </button>
                             </div>
 
                             <span
@@ -649,11 +778,9 @@ export default function MatchesPage() {
                             </div>
                           </div>
 
-                          <Link href={`/matches/${encodeURIComponent(r.id)}`}>
-                            <Button variant="secondary" className="w-full">
-                              View details
-                            </Button>
-                          </Link>
+                          <Button variant="secondary" className="w-full" onClick={onOpenDetail}>
+                            View details
+                          </Button>
 
                           <Button
                             className="w-full"

@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
@@ -57,6 +57,15 @@ type PhotoRow = {
   created_at: string;
 };
 
+function safeStr(v: any): string | null {
+  if (v == null) return null;
+  if (typeof v === 'string') {
+    const s = v.trim();
+    return s ? s : null;
+  }
+  return null;
+}
+
 function formatCurrency(v: number | null) {
   if (v == null) return '—';
   return `$${Number(v).toLocaleString()}`;
@@ -69,15 +78,61 @@ function fmtDate(ts: string | null) {
   return d.toLocaleString();
 }
 
-function buildAddressLine(l: Listing) {
+function buildStreetLineFromStructured(l: Listing) {
   const parts: string[] = [];
-  if (l.street_number) parts.push(l.street_number);
-  if (l.street_dir_prefix) parts.push(l.street_dir_prefix);
-  if (l.street_name) parts.push(l.street_name);
-  if (l.street_suffix) parts.push(l.street_suffix);
-  let addr = parts.join(' ').trim();
-  if (l.unit) addr = addr ? `${addr} #${l.unit}` : `#${l.unit}`;
-  return addr || l.listing_title || '(No address)';
+  if (safeStr(l.street_number)) parts.push(String(l.street_number).trim());
+  if (safeStr(l.street_dir_prefix)) parts.push(String(l.street_dir_prefix).trim());
+  if (safeStr(l.street_name)) parts.push(String(l.street_name).trim());
+  if (safeStr(l.street_suffix)) parts.push(String(l.street_suffix).trim());
+
+  let addr = parts.join(' ').replace(/\s+/g, ' ').trim();
+
+  const unit = safeStr(l.unit);
+  if (unit) addr = addr ? `${addr} #${unit}` : `#${unit}`;
+
+  return addr || null;
+}
+
+function buildStreetLineFromRawPayload(raw: any) {
+  const rp = raw ?? {};
+
+  const candidates = [
+    rp.UnparsedAddress,
+    rp.UnparsedFirstLineAddress,
+    rp.UnparsedFirstLine,
+    rp.StreetAddress,
+    rp.AddressLine1,
+    rp.FullStreetAddress,
+    rp.PropertyAddress,
+    rp.Address,
+    rp.StreetNumber && rp.StreetName
+      ? `${rp.StreetNumber} ${rp.StreetDirPrefix ?? ''} ${rp.StreetName} ${rp.StreetSuffix ?? ''}`
+      : null,
+    rp.StreetNumber && rp.StreetName && rp.UnitNumber
+      ? `${rp.StreetNumber} ${rp.StreetName} #${rp.UnitNumber}`
+      : null,
+  ]
+    .map(safeStr)
+    .filter(Boolean) as string[];
+
+  if (candidates.length === 0) return null;
+
+  const first = candidates[0]!;
+  const streetOnly = first.includes(',') ? first.split(',')[0].trim() : first.trim();
+  return streetOnly || null;
+}
+
+function buildStreetAddress(l: Listing) {
+  const structured = buildStreetLineFromStructured(l);
+  if (structured) return structured;
+
+  const fromRaw = buildStreetLineFromRawPayload(l.raw_payload);
+  if (fromRaw) return fromRaw;
+
+  const title = safeStr(l.listing_title);
+  if (title) return title;
+
+  return '(No address)';
 }
 
 function scoreLabel(score: number) {
@@ -105,10 +160,73 @@ function toNum(val: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function uniqUrls(urls: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const u of urls) {
+    const s = safeStr(u);
+    if (!s) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+function extractPhotoUrlsFromRawPayload(raw: any): string[] {
+  const rp = raw ?? {};
+
+  // Try a bunch of common shapes
+  const buckets: any[] = [];
+
+  if (Array.isArray(rp.PhotoUrls)) buckets.push(rp.PhotoUrls);
+  if (Array.isArray(rp.photoUrls)) buckets.push(rp.photoUrls);
+  if (Array.isArray(rp.Photos)) buckets.push(rp.Photos);
+  if (Array.isArray(rp.photos)) buckets.push(rp.photos);
+  if (Array.isArray(rp.Media)) buckets.push(rp.Media);
+  if (Array.isArray(rp.media)) buckets.push(rp.media);
+
+  const urls: string[] = [];
+
+  for (const b of buckets) {
+    for (const item of b) {
+      if (typeof item === 'string') {
+        urls.push(item);
+        continue;
+      }
+      if (item && typeof item === 'object') {
+        urls.push(
+          item.Url,
+          item.url,
+          item.MediaURL,
+          item.MediaUrl,
+          item.mediaUrl,
+          item.mediaURL,
+          item.Uri,
+          item.uri,
+          item.LargeUrl,
+          item.largeUrl
+        );
+      }
+    }
+  }
+
+  // Sometimes the “primary” only exists but plus additional keys
+  urls.push(
+    rp.PrimaryPhotoUrl,
+    rp.primaryPhotoUrl,
+    rp.ThumbnailUrl,
+    rp.thumbnailUrl
+  );
+
+  return uniqUrls(urls.filter(Boolean) as string[]);
+}
+
+const MATCHES_RESTORE_KEY = 'hayvnre:matches:restore';
+
 export default function MatchDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const recId = (params?.id as string) || '';
 
@@ -120,42 +238,85 @@ export default function MatchDetailPage() {
   const [rec, setRec] = useState<RecommendationRow | null>(null);
 
   const [photos, setPhotos] = useState<PhotoRow[]>([]);
+  const [rawPhotos, setRawPhotos] = useState<string[]>([]);
   const [activePhotoIdx, setActivePhotoIdx] = useState(0);
 
   const [actionBusy, setActionBusy] = useState(false);
 
   const listing = rec?.mls_listings ?? null;
 
-  // Preserve “where I left off” if Matches page passed query params (client_id, etc.)
-  const matchesBackHref = useMemo(() => {
-    const qs = searchParams?.toString() || '';
-    return qs ? `/matches?${qs}` : '/matches';
-  }, [searchParams]);
+  const goBackToMatches = () => {
+    // Always go to Matches; Matches page will restore selection + scroll.
+    router.push('/matches');
+  };
 
-  const safeBack = () => {
-    // If there’s history, go back. If not (fresh load), go to matches with preserved params.
-    if (typeof window !== 'undefined' && window.history.length > 1) {
-      router.back();
-    } else {
-      router.push(matchesBackHref);
-    }
+  // Build a unified list of photo URLs:
+  const allPhotoUrls = useMemo(() => {
+    const fromTable = photos.map((p) => p.url).filter(Boolean);
+    const merged = uniqUrls([...(fromTable as string[]), ...rawPhotos]);
+    return merged;
+  }, [photos, rawPhotos]);
+
+  const hasPhotos = allPhotoUrls.length > 0;
+  const canPrev = hasPhotos && activePhotoIdx > 0;
+  const canNext = hasPhotos && activePhotoIdx < allPhotoUrls.length - 1;
+
+  const goPrev = () => {
+    if (!canPrev) return;
+    setActivePhotoIdx((i) => Math.max(0, i - 1));
+  };
+
+  const goNext = () => {
+    if (!canNext) return;
+    setActivePhotoIdx((i) => Math.min(allPhotoUrls.length - 1, i + 1));
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') goPrev();
+      if (e.key === 'ArrowRight') goNext();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPrev, canNext, allPhotoUrls.length]);
+
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (!t) return;
+    touchStartX.current = t.clientX;
+    touchStartY.current = t.clientY;
+  };
+
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const startX = touchStartX.current;
+    const startY = touchStartY.current;
+    touchStartX.current = null;
+    touchStartY.current = null;
+
+    if (startX == null || startY == null) return;
+
+    const t = e.changedTouches[0];
+    if (!t) return;
+
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+
+    if (Math.abs(dx) < 40) return;
+    if (Math.abs(dy) > Math.abs(dx) * 0.75) return;
+
+    if (dx > 0) goPrev();
+    else goNext();
   };
 
   const primaryPhotoUrl = useMemo(() => {
-    // prefer photos table, fallback to raw_payload if present
-    if (photos[activePhotoIdx]?.url) return photos[activePhotoIdx].url;
+    if (!hasPhotos) return null;
+    return allPhotoUrls[activePhotoIdx] ?? null;
+  }, [hasPhotos, allPhotoUrls, activePhotoIdx]);
 
-    const rp = listing?.raw_payload;
-    return (
-      rp?.PrimaryPhotoUrl ||
-      rp?.primaryPhotoUrl ||
-      rp?.ThumbnailUrl ||
-      rp?.thumbnailUrl ||
-      null
-    );
-  }, [photos, activePhotoIdx, listing]);
-
-  // Fallbacks for missing structured fields (common when MLS payload shape differs)
   const derivedBeds = useMemo(() => {
     if (!listing) return null;
     if (listing.beds != null) return listing.beds;
@@ -199,66 +360,6 @@ export default function MatchDetailPage() {
     return toNum(rp?.YearBuilt) ?? null;
   }, [listing]);
 
-  // --- Photo navigation (click, keyboard, swipe) ---
-  const hasPhotos = photos.length > 0;
-  const canPrev = hasPhotos && activePhotoIdx > 0;
-  const canNext = hasPhotos && activePhotoIdx < photos.length - 1;
-
-  const goPrev = () => {
-    if (!canPrev) return;
-    setActivePhotoIdx((i) => Math.max(0, i - 1));
-  };
-
-  const goNext = () => {
-    if (!canNext) return;
-    setActivePhotoIdx((i) => Math.min(photos.length - 1, i + 1));
-  };
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') goPrev();
-      if (e.key === 'ArrowRight') goNext();
-      if (e.key === 'Escape') {
-        // no modal yet, but safe
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canPrev, canNext, photos.length]);
-
-  const touchStartX = useRef<number | null>(null);
-  const touchStartY = useRef<number | null>(null);
-
-  const onTouchStart = (e: React.TouchEvent) => {
-    const t = e.touches[0];
-    if (!t) return;
-    touchStartX.current = t.clientX;
-    touchStartY.current = t.clientY;
-  };
-
-  const onTouchEnd = (e: React.TouchEvent) => {
-    const startX = touchStartX.current;
-    const startY = touchStartY.current;
-    touchStartX.current = null;
-    touchStartY.current = null;
-
-    if (startX == null || startY == null) return;
-
-    const t = e.changedTouches[0];
-    if (!t) return;
-
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
-
-    // horizontal swipe threshold + ignore vertical scroll gestures
-    if (Math.abs(dx) < 40) return;
-    if (Math.abs(dy) > Math.abs(dx) * 0.75) return;
-
-    if (dx > 0) goPrev();
-    else goNext();
-  };
-
   useEffect(() => {
     const load = async () => {
       setLoading(true);
@@ -293,7 +394,6 @@ export default function MatchDetailPage() {
         brokerage_id: agentRow.brokerage_id ?? null,
       });
 
-      // Load recommendation + listing
       const { data: recRow, error: recErr } = await supabase
         .from('property_recommendations')
         .select(
@@ -348,6 +448,7 @@ export default function MatchDetailPage() {
       const typed = recRow as any as RecommendationRow;
       setRec(typed);
 
+      // Photos from table
       const listingId = typed?.mls_listings?.id;
       if (listingId) {
         const { data: photoRows, error: photoErr } = await supabase
@@ -358,16 +459,20 @@ export default function MatchDetailPage() {
           .limit(200);
 
         if (photoErr) {
-          // non-fatal
           console.warn('Photo load error:', photoErr.message);
           setPhotos([]);
         } else {
-          const rows = (photoRows ?? []) as PhotoRow[];
-          setPhotos(rows);
-          setActivePhotoIdx(0);
+          setPhotos((photoRows ?? []) as PhotoRow[]);
         }
+      } else {
+        setPhotos([]);
       }
 
+      // Photos from raw_payload fallback
+      const rp = typed?.mls_listings?.raw_payload;
+      setRawPhotos(extractPhotoUrlsFromRawPayload(rp));
+
+      setActivePhotoIdx(0);
       setLoading(false);
     };
 
@@ -401,7 +506,6 @@ export default function MatchDetailPage() {
     setActionBusy(true);
     setError(null);
 
-    // Prefer client.brokerage_id, else agent.brokerage_id
     const { data: clientRow, error: clientErr } = await supabase
       .from('clients')
       .select('id, brokerage_id')
@@ -414,8 +518,7 @@ export default function MatchDetailPage() {
       return;
     }
 
-    const brokerage_id =
-      (clientRow as any)?.brokerage_id ?? agent?.brokerage_id ?? null;
+    const brokerage_id = (clientRow as any)?.brokerage_id ?? agent?.brokerage_id ?? null;
 
     if (!brokerage_id) {
       setError('Attach failed: client/agent is not linked to a brokerage_id.');
@@ -423,18 +526,16 @@ export default function MatchDetailPage() {
       return;
     }
 
-    const address = buildAddressLine(listing);
+    const address = buildStreetAddress(listing);
 
-    // Prefer photos table first photo
     const bestPhotoUrl =
-      photos?.[0]?.url ||
-      listing?.raw_payload?.PrimaryPhotoUrl ||
-      listing?.raw_payload?.primaryPhotoUrl ||
-      listing?.raw_payload?.ThumbnailUrl ||
-      listing?.raw_payload?.thumbnailUrl ||
+      allPhotoUrls?.[0] ??
+      listing?.raw_payload?.PrimaryPhotoUrl ??
+      listing?.raw_payload?.primaryPhotoUrl ??
+      listing?.raw_payload?.ThumbnailUrl ??
+      listing?.raw_payload?.thumbnailUrl ??
       null;
 
-    // 1) Upsert into properties (your schema)
     const { data: propRows, error: propErr } = await supabase
       .from('properties')
       .upsert(
@@ -442,8 +543,8 @@ export default function MatchDetailPage() {
           brokerage_id,
           agent_id: agent?.id ?? null,
 
-          mls_id: listing.mls_number, // properties.mls_id is TEXT
-          address,
+          mls_id: listing.mls_number,
+          address, // STREET LINE
           city: listing.city ?? '',
           state: listing.state ?? '',
           zip: listing.postal_code ?? '',
@@ -479,7 +580,6 @@ export default function MatchDetailPage() {
       return;
     }
 
-    // 2) Attach to client
     const { error: cpErr } = await supabase
       .from('client_properties')
       .upsert(
@@ -501,16 +601,13 @@ export default function MatchDetailPage() {
       return;
     }
 
-    // 3) Mark rec as attached
     const { error: recErr } = await supabase
       .from('property_recommendations')
       .update({ status: 'attached' })
       .eq('id', rec.id);
 
     if (recErr) {
-      setError(
-        `Attached, but could not update recommendation status: ${recErr.message}`
-      );
+      setError(`Attached, but could not update recommendation status: ${recErr.message}`);
       setActionBusy(false);
       return;
     }
@@ -529,21 +626,15 @@ export default function MatchDetailPage() {
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
               Match Detail
             </h1>
-            <p className="text-sm text-slate-300">
-              Review photos + details, then attach to the client.
-            </p>
+            <p className="text-sm text-slate-300">Review photos + details, then attach to the client.</p>
           </div>
 
           <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              className="text-xs sm:text-sm"
-              onClick={safeBack}
-            >
+            <Button variant="ghost" className="text-xs sm:text-sm" onClick={goBackToMatches}>
               ← Back
             </Button>
 
-            <Link href={matchesBackHref}>
+            <Link href="/matches" onClick={() => router.push('/matches')}>
               <Button variant="ghost" className="text-xs sm:text-sm">
                 Matches
               </Button>
@@ -576,9 +667,7 @@ export default function MatchDetailPage() {
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="text-lg font-semibold text-white truncate">
-                    <span className="text-[#EBD27A]">
-                      {buildAddressLine(listing)}
-                    </span>
+                    <span className="text-[#EBD27A]">{buildStreetAddress(listing)}</span>
                   </div>
                   <div className="text-xs text-slate-400">
                     {(listing.city ?? '—') +
@@ -590,11 +679,11 @@ export default function MatchDetailPage() {
                         • <span className="font-mono">MLS #{listing.mls_number}</span>
                       </>
                     ) : null}
-                    {photos.length > 0 ? (
+                    {allPhotoUrls.length > 0 ? (
                       <>
                         {' '}
                         • <span className="text-slate-500">
-                          {activePhotoIdx + 1}/{photos.length} photos
+                          {activePhotoIdx + 1}/{allPhotoUrls.length} photos
                         </span>
                       </>
                     ) : null}
@@ -625,8 +714,7 @@ export default function MatchDetailPage() {
                   </div>
                 )}
 
-                {/* Prev/Next controls */}
-                {photos.length > 1 && (
+                {allPhotoUrls.length > 1 && (
                   <>
                     <button
                       type="button"
@@ -665,13 +753,13 @@ export default function MatchDetailPage() {
                 )}
               </div>
 
-              {photos.length > 1 && (
+              {allPhotoUrls.length > 1 && (
                 <div className="flex gap-2 overflow-x-auto pb-1">
-                  {photos.slice(0, 60).map((p, idx) => {
+                  {allPhotoUrls.slice(0, 60).map((url, idx) => {
                     const active = idx === activePhotoIdx;
                     return (
                       <button
-                        key={p.id}
+                        key={`${url}-${idx}`}
                         type="button"
                         onClick={() => setActivePhotoIdx(idx)}
                         className={[
@@ -680,16 +768,11 @@ export default function MatchDetailPage() {
                             ? 'border-[#EBD27A]/60 bg-[#EBD27A]/10'
                             : 'border-white/10 bg-black/40 hover:border-white/25',
                         ].join(' ')}
-                        title={p.caption ?? ''}
                         aria-label={`View photo ${idx + 1}`}
+                        title={`Photo ${idx + 1}`}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={p.url}
-                          alt={p.caption ?? `Photo ${idx + 1}`}
-                          className="h-16 w-24 object-cover"
-                          draggable={false}
-                        />
+                        <img src={url} alt={`Photo ${idx + 1}`} className="h-16 w-24 object-cover" draggable={false} />
                       </button>
                     );
                   })}
@@ -701,7 +784,7 @@ export default function MatchDetailPage() {
                 {listing.last_seen_at && fmtDate(listing.last_seen_at)
                   ? ` • Last seen: ${fmtDate(listing.last_seen_at)}`
                   : null}
-                {photos.length > 1 ? ' • Tip: swipe or use ← → keys' : null}
+                {allPhotoUrls.length > 1 ? ' • Tip: swipe or use ← → keys' : null}
               </div>
             </Card>
 
@@ -748,14 +831,8 @@ export default function MatchDetailPage() {
                       : '—'
                   }
                 />
-                <Info
-                  label="Sqft"
-                  value={derivedSqft != null ? Number(derivedSqft).toLocaleString() : '—'}
-                />
-                <Info
-                  label="Year"
-                  value={derivedYear != null ? String(derivedYear) : '—'}
-                />
+                <Info label="Sqft" value={derivedSqft != null ? Number(derivedSqft).toLocaleString() : '—'} />
+                <Info label="Year" value={derivedYear != null ? String(derivedYear) : '—'} />
               </div>
 
               {reasons.length > 0 && (
@@ -780,11 +857,7 @@ export default function MatchDetailPage() {
                   onClick={handleAttach}
                   disabled={actionBusy || rec.status === 'attached' || rec.status === 'dismissed'}
                 >
-                  {rec.status === 'attached'
-                    ? 'Already attached'
-                    : actionBusy
-                    ? 'Working…'
-                    : 'Attach to client'}
+                  {rec.status === 'attached' ? 'Already attached' : actionBusy ? 'Working…' : 'Attach to client'}
                 </Button>
 
                 <Button
