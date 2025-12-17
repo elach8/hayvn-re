@@ -115,10 +115,7 @@ export default function IngestPage() {
     }
   };
 
-  useEffect(() => {
-    runOnce();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+ 
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
