@@ -331,9 +331,9 @@ export default function MatchesPage() {
       `
       )
       .eq('client_id', clientId)
-      .in('status', ['new', 'attached'])
+      .eq('status', 'new')
       .order('score', { ascending: false })
-      .limit(200);
+      .limit(5);
 
     if (error) {
       setError(error.message);
@@ -342,14 +342,7 @@ export default function MatchesPage() {
       return;
     }
 
-    const rows = ((data ?? []) as any[]).sort((a, b) => {
-      const aNew = a.status === 'new' ? 0 : 1;
-      const bNew = b.status === 'new' ? 0 : 1;
-      if (aNew !== bNew) return aNew - bNew;
-      return (b.score ?? 0) - (a.score ?? 0);
-    });
-
-    setRecs(rows as any);
+    setRecs((data ?? []) as any);
     setRecsLoading(false);
   };
 
@@ -632,15 +625,6 @@ export default function MatchesPage() {
 
               <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
                 <Button
-                  variant="secondary"
-                  className="w-full sm:w-auto"
-                  onClick={() => selectedClientId && loadRecommendations(selectedClientId)}
-                  disabled={!selectedClientId || recsLoading}
-                >
-                  {recsLoading ? 'Loading…' : 'Load'}
-                </Button>
-
-                <Button
                   className="w-full sm:w-auto"
                   onClick={handleRefresh}
                   disabled={!selectedClientId || refreshing}
@@ -664,7 +648,7 @@ export default function MatchesPage() {
                 Showing <span className="font-semibold">{recs.length}</span> recommendation
                 {recs.length === 1 ? '' : 's'}
               </span>
-              <span className="text-[11px] text-slate-400">New first • then attached</span>
+              <span className="text-[11px] text-slate-400">Unreviewed only • Top 5</span>
             </div>
 
             {recsLoading ? (

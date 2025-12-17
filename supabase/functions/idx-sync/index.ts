@@ -452,21 +452,57 @@ async function writePhotosPerListing(
 }
 
 /** Photos-only backfill: load existing listings from DB (already ingested) */
+/** Photos-only backfill: load ONLY listings that currently have zero photos */
+/** Photos-only backfill: prioritize listings used by matches (property_recommendations) */
 async function loadExistingListingsForPhotoBackfill(
   supabase: SupabaseClient,
   conn: IdxConnection,
   limit: number
 ): Promise<UpsertedListingRow[]> {
-  const { data, error } = await supabase
+  // 1) Pull recent recs for this brokerage (via clients join)
+  const { data: recs, error: recErr } = await supabase
+    .from("property_recommendations")
+    .select("mls_listing_id, created_at, clients!inner(brokerage_id)")
+    .eq("clients.brokerage_id", conn.brokerage_id)
+    .order("created_at", { ascending: false })
+    .limit(Math.max(limit * 5, 500)); // pull more so we can filter missing
+
+  if (recErr) throw new Error(`Load recommendations for photo backfill failed: ${recErr.message}`);
+
+  const listingIds = Array.from(
+    new Set((recs ?? []).map((r: any) => r.mls_listing_id).filter(Boolean))
+  ).slice(0, Math.max(limit * 5, 500));
+
+  if (listingIds.length === 0) return [];
+
+  // 2) Find which of those already have at least 1 photo
+  const { data: photoRows, error: photoErr } = await supabase
+    .from("mls_listing_photos")
+    .select("listing_id")
+    .in("listing_id", listingIds)
+    .limit(100000);
+
+  if (photoErr) throw new Error(`Load existing photos failed: ${photoErr.message}`);
+
+  const hasPhoto = new Set((photoRows ?? []).map((p: any) => p.listing_id));
+
+  // 3) Keep only listing_ids that currently have 0 photos
+  const missingIds = listingIds.filter((id) => !hasPhoto.has(id)).slice(0, limit);
+
+  if (missingIds.length === 0) return [];
+
+  // 4) Load listing rows we will backfill
+  const { data: listings, error: listErr } = await supabase
     .from("mls_listings")
     .select("id, mls_number, raw_payload")
-    .eq("brokerage_id", conn.brokerage_id)
-    .order("last_seen_at", { ascending: false })
-    .limit(limit);
+    .in("id", missingIds);
 
-  if (error) throw new Error(`Load listings for photos_only failed: ${error.message}`);
-  return (data ?? []) as UpsertedListingRow[];
+  if (listErr) throw new Error(`Load listings missing photos failed: ${listErr.message}`);
+
+  return (listings ?? []) as UpsertedListingRow[];
 }
+
+
 
 async function markConnection(supabase: SupabaseClient, id: string, patch: Record<string, unknown>) {
   const { error } = await supabase.from("idx_connections").update(patch).eq("id", id);
