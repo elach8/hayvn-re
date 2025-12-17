@@ -1,11 +1,13 @@
 // supabase/functions/idx-sync/index.ts
 // IDX sync for Hayvn-RE (MLSListings Web API - VOW, RESO OData).
 // - Syncs Property per live idx_connection
-// - Upserts into mls_listings keyed by (idx_connection_id, mls_number)
-// - Fetches photos via Media PER LISTING (avoids global Media timeout)
-// - Writes mls_listing_photos
+// - Upserts into mls_listings keyed by (brokerage_id, mls_number)
+// - Optionally fetches photos PER LISTING via /Media + ResourceRecordKeyNumeric (MLSListings compatible)
+// - Supports photos_only=1 to backfill photos for listings already in DB (no Property fetch/upsert)
 
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare const Deno: any;
+
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
 type IdxStatus = "pending" | "live" | "disabled";
@@ -50,13 +52,13 @@ type NormalizedListing = {
   county: string | null;
   latitude: number | null;
   longitude: number | null;
-  raw_payload: unknown;
+  raw_payload: any;
 };
 
 type UpsertedListingRow = {
   id: string; // mls_listings.id
-  idx_connection_id: string;
   mls_number: string;
+  raw_payload: any;
 };
 
 function corsHeaders(origin: string | null) {
@@ -130,6 +132,7 @@ function toIso(val: unknown): string | null {
   return d.toISOString();
 }
 
+/** Keep your normalization so mls_listings_status_check passes */
 function normalizeStatus(raw: unknown): NormalizedListing["status"] {
   const s = String(raw ?? "").toLowerCase().trim();
 
@@ -218,15 +221,10 @@ async function loadConnectionsToSync(
   return (data ?? []) as IdxConnection[];
 }
 
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
-async function fetchResoProperty(
+async function fetchResoEntity(
   conn: IdxConnection,
-  opts: { top: number; maxPages: number }
+  entity: "Property" | "Media",
+  opts: { top: number; maxPages: number; filter?: string }
 ) {
   const endpointUrl = conn.endpoint_url;
   const token = conn.api_key;
@@ -235,7 +233,10 @@ async function fetchResoProperty(
     throw new Error(`idx_connection ${conn.id} missing endpoint_url or api_key`);
   }
 
-  const base = toPropertyEndpoint(endpointUrl);
+  const base = entity === "Property"
+    ? toPropertyEndpoint(endpointUrl)
+    : toMediaEndpoint(endpointUrl);
+
   const safeTop = Math.min(300, Math.max(1, opts.top));
 
   const all: any[] = [];
@@ -246,6 +247,7 @@ async function fetchResoProperty(
     url.searchParams.set("$orderby", "ModificationTimestamp desc");
     url.searchParams.set("$top", String(safeTop));
     url.searchParams.set("$skip", String(skip));
+    if (opts.filter) url.searchParams.set("$filter", opts.filter);
 
     const res = await fetch(url.toString(), {
       method: "GET",
@@ -257,7 +259,10 @@ async function fetchResoProperty(
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      throw new Error(`MLS Property HTTP ${res.status} ${res.statusText}: ${text.slice(0, 500)}`);
+      if (entity === "Media") {
+        throw new Error(`MLS Media HTTP ${res.status} ${res.statusText}: ${text.slice(0, 500)}`);
+      }
+      throw new Error(`MLS HTTP ${res.status} ${res.statusText}: ${text.slice(0, 500)}`);
     }
 
     const body = await res.json().catch(() => null);
@@ -275,6 +280,7 @@ async function fetchResoProperty(
   return all;
 }
 
+/** IMPORTANT: upsert conflict target matches your UNIQUE(brokerage_id, mls_number) */
 async function upsertListings(
   supabase: SupabaseClient,
   conn: IdxConnection,
@@ -319,10 +325,12 @@ async function upsertListings(
 
   const { data, error } = await supabase
     .from("mls_listings")
-    .upsert(rows, { onConflict: "idx_connection_id,mls_number" })
-    .select("id, idx_connection_id, mls_number");
+    .upsert(rows, { onConflict: "brokerage_id,mls_number" })
+    .select("id, mls_number, raw_payload");
 
-  if (error) throw new Error(`Upsert mls_listings failed: ${error.message}`);
+  if (error) {
+    throw new Error(`Upsert mls_listings failed: ${error.message}`);
+  }
 
   return {
     upserted: data?.length ?? 0,
@@ -355,43 +363,109 @@ function extractMediaCaption(m: any): string | null {
   return s ? s : null;
 }
 
-async function fetchMediaForListing(
+/** MLSListings: Media.ResourceRecordKeyNumeric === Property.ListingKeyNumeric */
+function deriveMediaLinkValue(listingRaw: any): { field: string; value: string } | null {
+  const vNumeric =
+    listingRaw?.ListingKeyNumeric ?? // MUST be first
+    listingRaw?.SourceSystemKey ??   // fallback only
+    null;
+
+  if (vNumeric != null && String(vNumeric).trim()) {
+    return { field: "ResourceRecordKeyNumeric", value: String(vNumeric).trim() };
+  }
+
+  const vId =
+    listingRaw?.ResourceRecordID ??
+    listingRaw?.OriginatingSystemKey ??
+    null;
+
+  if (vId != null && String(vId).trim()) {
+    return { field: "ResourceRecordID", value: String(vId).trim() };
+  }
+
+  return null;
+}
+
+async function writePhotosPerListing(
+  supabase: SupabaseClient,
   conn: IdxConnection,
-  opts: { top: number; mlsNumber: string }
-): Promise<any[]> {
-  const endpointUrl = conn.endpoint_url;
-  const token = conn.api_key;
+  listingRows: UpsertedListingRow[],
+  knobs: { top: number; mediaPages: number; photoListingLimit: number }
+): Promise<{ photos_written: number; listings_with_media: number; media_calls: number }> {
+  let photos_written = 0;
+  let listings_with_media = 0;
+  let media_calls = 0;
 
-  if (!endpointUrl || !token) {
-    throw new Error(`idx_connection ${conn.id} missing endpoint_url or api_key`);
+  const slice = listingRows.slice(0, knobs.photoListingLimit);
+
+  for (const lr of slice) {
+    const link = deriveMediaLinkValue(lr.raw_payload);
+    if (!link) continue;
+
+    media_calls++;
+
+    const isNumeric = link.field === "ResourceRecordKeyNumeric";
+    const filterValue = isNumeric ? link.value : `'${String(link.value).replace(/'/g, "''")}'`;
+    const filter = `${link.field} eq ${filterValue}`;
+
+    const media = await fetchResoEntity(conn, "Media", {
+      top: knobs.top,
+      maxPages: knobs.mediaPages,
+      filter,
+    });
+
+    if (!Array.isArray(media) || media.length === 0) continue;
+
+    listings_with_media++;
+
+    const { error: delErr } = await supabase
+      .from("mls_listing_photos")
+      .delete()
+      .eq("listing_id", lr.id);
+
+    if (delErr) throw new Error(`Delete photos failed: ${delErr.message}`);
+
+    media.sort((a, b) => (extractMediaOrder(a) ?? 999999) - (extractMediaOrder(b) ?? 999999));
+
+    const rows = media
+      .map((m: any, idx: number) => {
+        const url = extractMediaUrl(m);
+        if (!url) return null;
+        return {
+          listing_id: lr.id,
+          sort_order: extractMediaOrder(m) ?? idx,
+          url,
+          caption: extractMediaCaption(m),
+        };
+      })
+      .filter(Boolean) as { listing_id: string; sort_order: number; url: string; caption: string | null }[];
+
+    if (rows.length === 0) continue;
+
+    const { error: insErr } = await supabase.from("mls_listing_photos").insert(rows);
+    if (insErr) throw new Error(`Insert photos failed: ${insErr.message}`);
+
+    photos_written += rows.length;
   }
 
-  const base = toMediaEndpoint(endpointUrl);
-  const safeTop = Math.min(300, Math.max(1, opts.top));
+  return { photos_written, listings_with_media, media_calls };
+}
 
-  const url = new URL(base);
-  url.searchParams.set("$top", String(safeTop));
+/** Photos-only backfill: load existing listings from DB (already ingested) */
+async function loadExistingListingsForPhotoBackfill(
+  supabase: SupabaseClient,
+  conn: IdxConnection,
+  limit: number
+): Promise<UpsertedListingRow[]> {
+  const { data, error } = await supabase
+    .from("mls_listings")
+    .select("id, mls_number, raw_payload")
+    .eq("brokerage_id", conn.brokerage_id)
+    .order("last_seen_at", { ascending: false })
+    .limit(limit);
 
-  // MLSListings commonly uses ListingId == MLS#
-  url.searchParams.set("$filter", `ListingId eq '${opts.mlsNumber}'`);
-
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json",
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`MLS Media HTTP ${res.status} ${res.statusText}: ${text.slice(0, 500)}`);
-  }
-
-  const body = await res.json().catch(() => null);
-  const value = body?.value;
-
-  return Array.isArray(value) ? value : [];
+  if (error) throw new Error(`Load listings for photos_only failed: ${error.message}`);
+  return (data ?? []) as UpsertedListingRow[];
 }
 
 async function markConnection(supabase: SupabaseClient, id: string, patch: Record<string, unknown>) {
@@ -399,7 +473,7 @@ async function markConnection(supabase: SupabaseClient, id: string, patch: Recor
   if (error) console.error("Failed to update idx_connections:", id, error.message);
 }
 
-serve(async (req) => {
+Deno.serve(async (req: Request) => {
   const origin = req.headers.get("origin");
 
   if (req.method === "OPTIONS") {
@@ -414,14 +488,15 @@ serve(async (req) => {
 
   try {
     const url = new URL(req.url);
-
     const connectionId = url.searchParams.get("connection_id");
     const dryRun = url.searchParams.get("dry_run") === "1";
     const includePhotos = url.searchParams.get("include_photos") === "1";
+    const photosOnly = url.searchParams.get("photos_only") === "1";
 
-    // knobs
+    // knobs (safe defaults)
     const top = Math.min(300, Math.max(1, Number(url.searchParams.get("top") ?? "100")));
     const propPages = Math.max(1, Number(url.searchParams.get("prop_pages") ?? "1"));
+    const mediaPages = Math.max(1, Number(url.searchParams.get("media_pages") ?? "1"));
     const photoListingLimit = Math.max(1, Number(url.searchParams.get("photo_listing_limit") ?? "30"));
 
     const connections = await loadConnectionsToSync(supabase, connectionId);
@@ -445,7 +520,46 @@ serve(async (req) => {
           continue;
         }
 
-        const rawProps = await fetchResoProperty(conn, { top, maxPages: propPages });
+        // --- photos_only mode: skip Property fetch/upsert ---
+        if (photosOnly) {
+          if (!includePhotos) {
+            results.push({
+              connection_id: conn.id,
+              ok: true,
+              photos_only: true,
+              include_photos: false,
+              message: "photos_only=1 but include_photos=0; nothing to do",
+              knobs: { top, propPages, mediaPages, photoListingLimit },
+            });
+            continue;
+          }
+
+          const existing = await loadExistingListingsForPhotoBackfill(supabase, conn, photoListingLimit);
+
+          const photoRes = await writePhotosPerListing(
+            supabase,
+            conn,
+            existing,
+            { top: 300, mediaPages, photoListingLimit }
+          );
+
+          results.push({
+            connection_id: conn.id,
+            ok: true,
+            photos_only: true,
+            upserted: 0,
+            photos_written: photoRes.photos_written,
+            listings_with_media: photoRes.listings_with_media,
+            media_calls: photoRes.media_calls,
+            fetched_raw: 0,
+            knobs: { top, propPages, mediaPages, photoListingLimit },
+          });
+
+          continue;
+        }
+
+        // --- Normal Property ingest ---
+        const rawProps = await fetchResoEntity(conn, "Property", { top, maxPages: propPages });
         const mlsSource = conn.mls_name || conn.vendor_name || conn.endpoint_url;
 
         const normalized: NormalizedListing[] = rawProps
@@ -459,8 +573,7 @@ serve(async (req) => {
             dry_run: true,
             fetched_raw: rawProps.length,
             normalized: normalized.length,
-            includePhotos,
-            knobs: { top, propPages, photoListingLimit },
+            knobs: { top, propPages, mediaPages, photoListingLimit },
           });
           await markConnection(supabase, conn.id, { last_status_at: startedAt, last_error: null });
           continue;
@@ -473,54 +586,15 @@ serve(async (req) => {
         let media_calls = 0;
 
         if (includePhotos && upsertedRows.length > 0) {
-          const limited = upsertedRows.slice(0, photoListingLimit);
-
-          // Bulk delete existing photos for these listings
-          const listingIds = limited.map((r) => r.id);
-          for (const idChunk of chunk(listingIds, 200)) {
-            const { error } = await supabase
-              .from("mls_listing_photos")
-              .delete()
-              .in("listing_id", idChunk);
-
-            if (error) throw new Error(`Delete photos failed: ${error.message}`);
-          }
-
-          // Fetch media per listing + insert
-          for (const r of limited) {
-            const media = await fetchMediaForListing(conn, { top: 300, mlsNumber: r.mls_number });
-            media_calls++;
-
-            if (!media.length) continue;
-            listings_with_media++;
-
-            media.sort((a, b) => {
-              const ao = extractMediaOrder(a) ?? 999999;
-              const bo = extractMediaOrder(b) ?? 999999;
-              return ao - bo;
-            });
-
-            const photoRows = media
-              .map((m, idx) => {
-                const u = extractMediaUrl(m);
-                if (!u) return null;
-                return {
-                  listing_id: r.id,
-                  sort_order: extractMediaOrder(m) ?? idx,
-                  url: u,
-                  caption: extractMediaCaption(m),
-                };
-              })
-              .filter(Boolean) as { listing_id: string; sort_order: number; url: string; caption: string | null }[];
-
-            if (!photoRows.length) continue;
-
-            for (const batch of chunk(photoRows, 1000)) {
-              const { error } = await supabase.from("mls_listing_photos").insert(batch);
-              if (error) throw new Error(`Insert photos failed: ${error.message}`);
-              photos_written += batch.length;
-            }
-          }
+          const photoRes = await writePhotosPerListing(
+            supabase,
+            conn,
+            upsertedRows,
+            { top: 300, mediaPages, photoListingLimit }
+          );
+          photos_written = photoRes.photos_written;
+          listings_with_media = photoRes.listings_with_media;
+          media_calls = photoRes.media_calls;
         }
 
         await markConnection(supabase, conn.id, {
@@ -537,7 +611,7 @@ serve(async (req) => {
           listings_with_media,
           media_calls,
           fetched_raw: rawProps.length,
-          knobs: { top, propPages, photoListingLimit },
+          knobs: { top, propPages, mediaPages, photoListingLimit },
         });
       } catch (e: any) {
         await markConnection(supabase, conn.id, {
@@ -554,3 +628,4 @@ serve(async (req) => {
     return jsonResponse({ ok: false, error: e?.message ?? "Unhandled error" }, 500, origin);
   }
 });
+
