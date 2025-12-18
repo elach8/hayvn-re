@@ -45,8 +45,7 @@ type RecommendationRow = {
   reasons: any;
   status: 'new' | 'attached' | 'dismissed';
   created_at: string;
-  // NEW (schema): property_recommendations.agent_note
-  agent_note?: string | null;
+  agent_note?: string | null; // property_recommendations.agent_note
   mls_listings: Listing | null;
 };
 
@@ -162,15 +161,52 @@ function toNum(val: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function uniqUrls(urls: string[]) {
+/**
+ * FIX: De-dupe “same photo different size” variants and prefer the higher-quality URL.
+ * - canonical key strips query string + hash
+ * - we sort so "thumb/thumbnail/small/resize/w=..." go last
+ */
+function canonicalPhotoKey(url: string) {
+  const s = safeStr(url) ?? '';
+  if (!s) return '';
+  const noHash = s.split('#')[0];
+  const noQuery = noHash.split('?')[0];
+  return noQuery.trim();
+}
+
+function photoQualityRank(url: string) {
+  const s = (safeStr(url) ?? '').toLowerCase();
+  if (!s) return 999;
+
+  // higher score = worse quality
+  let penalty = 0;
+
+  if (s.includes('thumbnail') || s.includes('/thumbnail') || s.includes('thumb')) penalty += 50;
+  if (s.includes('small') || s.includes('tiny')) penalty += 20;
+
+  // common resize params in query strings
+  if (s.includes('width=') || s.includes('w=') || s.includes('height=') || s.includes('h=')) penalty += 15;
+  if (s.includes('resize') || s.includes('resized') || s.includes('fit=')) penalty += 15;
+
+  // sometimes CDNs label large explicitly
+  if (s.includes('large') || s.includes('full')) penalty -= 10;
+
+  return penalty;
+}
+
+function uniqPhotoUrlsPreferLarge(urls: string[]) {
+  const cleaned = urls.map((u) => safeStr(u)).filter(Boolean) as string[];
+  // Prefer higher quality first (lower penalty first)
+  cleaned.sort((a, b) => photoQualityRank(a) - photoQualityRank(b));
+
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const u of urls) {
-    const s = safeStr(u);
-    if (!s) continue;
-    if (seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
+  for (const u of cleaned) {
+    const key = canonicalPhotoKey(u);
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(u);
   }
   return out;
 }
@@ -178,7 +214,6 @@ function uniqUrls(urls: string[]) {
 function extractPhotoUrlsFromRawPayload(raw: any): string[] {
   const rp = raw ?? {};
 
-  // Try a bunch of common shapes
   const buckets: any[] = [];
 
   if (Array.isArray(rp.PhotoUrls)) buckets.push(rp.PhotoUrls);
@@ -213,10 +248,11 @@ function extractPhotoUrlsFromRawPayload(raw: any): string[] {
     }
   }
 
-  // Sometimes the “primary” only exists but plus additional keys
+  // Primary + thumb fallbacks
   urls.push(rp.PrimaryPhotoUrl, rp.primaryPhotoUrl, rp.ThumbnailUrl, rp.thumbnailUrl);
 
-  return uniqUrls(urls.filter(Boolean) as string[]);
+  // FIX: use canonical de-dupe
+  return uniqPhotoUrlsPreferLarge(urls.filter(Boolean) as string[]);
 }
 
 const MATCHES_RESTORE_KEY = 'hayvnre:matches:restore';
@@ -240,7 +276,6 @@ export default function MatchDetailPage() {
 
   const [actionBusy, setActionBusy] = useState(false);
 
-  // NEW: agent note textarea state (saved to recommendation + copied to client_properties on attach)
   const [agentNote, setAgentNote] = useState<string>('');
   const [noteDirty, setNoteDirty] = useState(false);
 
@@ -250,12 +285,12 @@ export default function MatchDetailPage() {
     router.push('/matches');
   };
 
-  // Build a unified list of photo URLs:
-  // FIX: Prefer table photos; only fall back to raw payload if table is empty
+  // Prefer table photos; only fall back to raw if table is empty
+  // FIX: canonical de-dupe here too (table may also include size variants)
   const allPhotoUrls = useMemo(() => {
     const fromTable = photos.map((p) => p.url).filter(Boolean) as string[];
-    if (fromTable.length > 0) return uniqUrls(fromTable);
-    return uniqUrls(rawPhotos);
+    if (fromTable.length > 0) return uniqPhotoUrlsPreferLarge(fromTable);
+    return uniqPhotoUrlsPreferLarge(rawPhotos);
   }, [photos, rawPhotos]);
 
   const hasPhotos = allPhotoUrls.length > 0;
@@ -445,7 +480,6 @@ export default function MatchDetailPage() {
       const typed = recRow as any as RecommendationRow;
       setRec(typed);
 
-      // init note from DB (only if user hasn't started typing)
       setAgentNote((typed as any)?.agent_note ?? '');
       setNoteDirty(false);
 
@@ -501,7 +535,6 @@ export default function MatchDetailPage() {
     setActionBusy(true);
     setError(null);
 
-    // Save note + status together
     const res = await persistNoteToRecommendation('dismissed');
     if (!res.ok) {
       setError(res.error);
@@ -512,7 +545,6 @@ export default function MatchDetailPage() {
     setRec((prev) => (prev ? { ...prev, status: 'dismissed', agent_note: agentNote } : prev));
     setActionBusy(false);
 
-    // Auto-return to queue
     router.push('/matches');
   };
 
@@ -561,7 +593,7 @@ export default function MatchDetailPage() {
           agent_id: agent?.id ?? null,
 
           mls_id: listing.mls_number,
-          address, // STREET LINE
+          address,
           city: listing.city ?? '',
           state: listing.state ?? '',
           zip: listing.postal_code ?? '',
@@ -597,7 +629,6 @@ export default function MatchDetailPage() {
       return;
     }
 
-    // Attach relationship + save agent notes on client_properties
     const { error: cpErr } = await supabase
       .from('client_properties')
       .upsert(
@@ -609,7 +640,7 @@ export default function MatchDetailPage() {
           is_favorite: false,
           client_feedback: null,
           client_rating: null,
-          agent_notes: agentNote ?? null, // NEW (schema): client_properties.agent_notes
+          agent_notes: agentNote ?? null,
         } as any,
         { onConflict: 'client_id,property_id' as any }
       );
@@ -620,7 +651,6 @@ export default function MatchDetailPage() {
       return;
     }
 
-    // Save note + update recommendation status
     const res = await persistNoteToRecommendation('attached');
     if (!res.ok) {
       setError(`Attached, but could not update recommendation: ${res.error}`);
@@ -631,7 +661,6 @@ export default function MatchDetailPage() {
     setRec((prev) => (prev ? { ...prev, status: 'attached', agent_note: agentNote } : prev));
     setActionBusy(false);
 
-    // Auto-return to queue
     router.push('/matches');
   };
 
@@ -787,12 +816,7 @@ export default function MatchDetailPage() {
                         title={`Photo ${idx + 1}`}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={url}
-                          alt={`Photo ${idx + 1}`}
-                          className="h-16 w-24 object-cover"
-                          draggable={false}
-                        />
+                        <img src={url} alt={`Photo ${idx + 1}`} className="h-16 w-24 object-cover" draggable={false} />
                       </button>
                     );
                   })}
@@ -851,10 +875,7 @@ export default function MatchDetailPage() {
                       : '—'
                   }
                 />
-                <Info
-                  label="Sqft"
-                  value={derivedSqft != null ? Number(derivedSqft).toLocaleString() : '—'}
-                />
+                <Info label="Sqft" value={derivedSqft != null ? Number(derivedSqft).toLocaleString() : '—'} />
                 <Info label="Year" value={derivedYear != null ? String(derivedYear) : '—'} />
               </div>
 
@@ -874,7 +895,6 @@ export default function MatchDetailPage() {
                 </div>
               )}
 
-              {/* NEW: notes */}
               <div className="space-y-1 pt-1">
                 <div className="text-[11px] font-medium text-slate-300">
                   Agent notes <span className="text-slate-500">(saved; shown to client when attached)</span>
@@ -894,20 +914,11 @@ export default function MatchDetailPage() {
               </div>
 
               <div className="pt-2 space-y-2">
-                <Button
-                  className="w-full"
-                  onClick={handleAttach}
-                  disabled={actionBusy || rec.status !== 'new'}
-                >
+                <Button className="w-full" onClick={handleAttach} disabled={actionBusy || rec.status !== 'new'}>
                   {actionBusy ? 'Working…' : 'Attach to client'}
                 </Button>
 
-                <Button
-                  variant="secondary"
-                  className="w-full"
-                  onClick={handleDismiss}
-                  disabled={actionBusy || rec.status !== 'new'}
-                >
+                <Button variant="secondary" className="w-full" onClick={handleDismiss} disabled={actionBusy || rec.status !== 'new'}>
                   {actionBusy ? 'Working…' : 'Dismiss'}
                 </Button>
 
