@@ -20,7 +20,7 @@ type Client = {
   preferred_locations: string | null;
   notes: string | null;
 
-  // ✅ requirements fields (you said “yes” these exist)
+  // requirements fields
   property_types: string[] | null;
   min_beds: number | null;
   min_baths: number | null;
@@ -101,101 +101,8 @@ type PortalMessage = {
   created_at: string | null;
 };
 
-type MlsListing = {
-  id: string; // mls_listings.id (uuid)
-  mls_number: string | null;
-  status: string | null;
-  list_price: number | null;
-  city: string | null;
-  state: string | null;
-  postal_code: string | null;
-
-  street_number: string | null;
-  street_name: string | null;
-  street_suffix: string | null;
-  unit: string | null;
-
-  beds: number | null;
-  baths: number | null;
-  sqft: number | null;
-  lot_sqft: number | null;
-  year_built: number | null;
-  property_type: string | null;
-
-  raw_payload: any | null;
-};
-
-type RecommendationRow = {
-  id: string;
-  client_id: string;
-  mls_listing_id: string;
-  score: number | null;
-  reasons: string[] | null;
-  status: string | null; // "new" | "attached" | "dismissed" etc.
-  created_at: string | null;
-  updated_at: string | null;
-  mls_listings: MlsListing | null;
-};
-
 const RELATIONSHIP_OPTIONS = ['favorite', 'toured', 'offered', 'under_contract', 'closed'];
 const INTEREST_OPTIONS = ['hot', 'warm', 'cold'];
-
-const STAGES = ['lead', 'active', 'under_contract', 'past', 'lost'];
-const TYPES = ['buyer', 'seller', 'both'];
-
-// these are your “checkbox” requirements
-const PROPERTY_TYPE_OPTIONS = [
-  'SingleFamilyResidence',
-  'Condominium',
-  'Townhouse',
-  'MultiFamily',
-  'Duplex',
-  'Triplex',
-  'Fourplex',
-  'ResidentialIncome',
-  'ManufacturedHome',
-  'Land',
-  'Other',
-];
-
-const DEAL_STYLE_OPTIONS = [
-  { value: 'any', label: 'Any' },
-  { value: 'turnkey', label: 'Turnkey' },
-  { value: 'fixer', label: 'Fixer' },
-  { value: 'value_add', label: 'Value add' },
-  { value: 'investment', label: 'Investment' },
-];
-
-function normalizeToken(s: string) {
-  return s.toLowerCase().trim().replace(/\s+/g, ' ');
-}
-
-function buildPrettyAddress(l: MlsListing) {
-  const parts: string[] = [];
-  const sn = (l.street_number ?? '').toString().trim();
-  const name = (l.street_name ?? '').toString().trim();
-  const suffix = (l.street_suffix ?? '').toString().trim();
-  const unit = (l.unit ?? '').toString().trim();
-
-  if (sn) parts.push(sn);
-  if (name) parts.push(name);
-  if (suffix) parts.push(suffix);
-
-  let addr = parts.join(' ');
-  if (unit) addr = `${addr} #${unit}`;
-  return addr || (l.mls_number ? `MLS ${l.mls_number}` : 'MLS Listing');
-}
-
-function pickThumbUrl(raw: any): string | null {
-  if (!raw) return null;
-  return (
-    raw?.ThumbnailUrl ??
-    raw?.thumbnail_url ??
-    raw?.Media?.[0]?.Url ??
-    raw?.Photos?.[0]?.Url ??
-    null
-  );
-}
 
 export default function ClientDetailPage() {
   const params = useParams();
@@ -231,6 +138,7 @@ export default function ClientDetailPage() {
   const [savingMessage, setSavingMessage] = useState(false);
   const [newMessageError, setNewMessageError] = useState<string | null>(null);
 
+  // Attached properties (manual attach still supported)
   const [selectedPropertyId, setSelectedPropertyId] = useState('');
   const [relationship, setRelationship] = useState('favorite');
   const [interestLevel, setInterestLevel] = useState('hot');
@@ -238,43 +146,17 @@ export default function ClientDetailPage() {
   const [addingProperty, setAddingProperty] = useState(false);
   const [addPropertyError, setAddPropertyError] = useState<string | null>(null);
 
+  // Internal notes
   const [newNote, setNewNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
   const [newNoteError, setNewNoteError] = useState<string | null>(null);
 
+  // Portal access (now inside the client summary card)
   const [portalLinks, setPortalLinks] = useState<PortalAccess[]>([]);
   const [portalEmail, setPortalEmail] = useState('');
   const [linkRole, setLinkRole] = useState('primary');
   const [linkError, setLinkError] = useState<string | null>(null);
   const [linkSaving, setLinkSaving] = useState(false);
-
-  // ✅ requirements editor state
-  const [editingReqs, setEditingReqs] = useState(false);
-  const [reqBudgetMin, setReqBudgetMin] = useState('');
-  const [reqBudgetMax, setReqBudgetMax] = useState('');
-  const [reqPreferredLocations, setReqPreferredLocations] = useState('');
-  const [reqMinBeds, setReqMinBeds] = useState('');
-  const [reqMinBaths, setReqMinBaths] = useState('');
-  const [reqDealStyle, setReqDealStyle] = useState('any');
-  const [reqPropertyTypes, setReqPropertyTypes] = useState<string[]>([]);
-  const [savingReqs, setSavingReqs] = useState(false);
-  const [reqError, setReqError] = useState<string | null>(null);
-
-  // ✅ recommendations state
-  const [recs, setRecs] = useState<RecommendationRow[]>([]);
-  const [recsLoading, setRecsLoading] = useState(true);
-  const [recsError, setRecsError] = useState<string | null>(null);
-  const [runningRecs, setRunningRecs] = useState(false);
-
-  const [attachingFromRecId, setAttachingFromRecId] = useState<string | null>(null);
-  const [recActionError, setRecActionError] = useState<string | null>(null);
-
-  const toNumberOrNull = (raw: string) => {
-    const cleaned = raw.replace(/,/g, '').trim();
-    if (!cleaned) return null;
-    const n = Number(cleaned);
-    return Number.isNaN(n) ? null : n;
-  };
 
   useEffect(() => {
     if (!id) return;
@@ -318,15 +200,6 @@ export default function ClientDetailPage() {
       setClient(c);
 
       if (c?.email) setPortalEmail(c.email);
-
-      // hydrate requirements editor
-      setReqBudgetMin(c?.budget_min != null ? String(c.budget_min) : '');
-      setReqBudgetMax(c?.budget_max != null ? String(c.budget_max) : '');
-      setReqPreferredLocations(c?.preferred_locations ?? '');
-      setReqMinBeds(c?.min_beds != null ? String(c.min_beds) : '');
-      setReqMinBaths(c?.min_baths != null ? String(c.min_baths) : '');
-      setReqDealStyle((c?.deal_style ?? 'any') || 'any');
-      setReqPropertyTypes(Array.isArray(c?.property_types) ? c!.property_types! : []);
 
       setLoadingClient(false);
     };
@@ -573,60 +446,6 @@ export default function ClientDetailPage() {
       setMessagesLoading(false);
     };
 
-    const loadRecommendations = async () => {
-      setRecsLoading(true);
-      setRecsError(null);
-
-      const { data, error } = await supabase
-        .from('property_recommendations')
-        .select(
-          `
-          id,
-          client_id,
-          mls_listing_id,
-          score,
-          reasons,
-          status,
-          created_at,
-          updated_at,
-          mls_listings (
-            id,
-            mls_number,
-            status,
-            list_price,
-            city,
-            state,
-            postal_code,
-            street_number,
-            street_name,
-            street_suffix,
-            unit,
-            beds,
-            baths,
-            sqft,
-            lot_sqft,
-            year_built,
-            property_type,
-            raw_payload
-          )
-        `
-        )
-        .eq('client_id', id)
-        .order('score', { ascending: false })
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Error loading recommendations:', error);
-        setRecsError(error.message);
-        setRecs([]);
-        setRecsLoading(false);
-        return;
-      }
-
-      setRecs((data || []) as any);
-      setRecsLoading(false);
-    };
-
     loadClient();
     loadAllProperties();
     loadClientProperties();
@@ -635,7 +454,6 @@ export default function ClientDetailPage() {
     loadPortalLinks();
     loadClientOffers();
     loadClientMessages();
-    loadRecommendations();
   }, [id]);
 
   const reloadClientProps = async (clientId: string) => {
@@ -691,53 +509,6 @@ export default function ClientDetailPage() {
     setClientProperties(mapped);
   };
 
-  const reloadRecommendations = async () => {
-    const { data, error } = await supabase
-      .from('property_recommendations')
-      .select(
-        `
-        id,
-        client_id,
-        mls_listing_id,
-        score,
-        reasons,
-        status,
-        created_at,
-        updated_at,
-        mls_listings (
-          id,
-          mls_number,
-          status,
-          list_price,
-          city,
-          state,
-          postal_code,
-          street_number,
-          street_name,
-          street_suffix,
-          unit,
-          beds,
-          baths,
-          sqft,
-          lot_sqft,
-          year_built,
-          property_type,
-          raw_payload
-        )
-      `
-      )
-      .eq('client_id', id)
-      .order('score', { ascending: false })
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error reloading recs:', error);
-      setRecsError(error.message);
-      return;
-    }
-    setRecs((data || []) as any);
-  };
-
   const handleAttachProperty = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!client) return;
@@ -768,204 +539,6 @@ export default function ClientDetailPage() {
 
     await reloadClientProps(client.id);
     setAddingProperty(false);
-  };
-
-  const handleSaveRequirements = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!client) return;
-
-    setSavingReqs(true);
-    setReqError(null);
-
-    const patch: Partial<Client> = {
-      budget_min: toNumberOrNull(reqBudgetMin),
-      budget_max: toNumberOrNull(reqBudgetMax),
-      preferred_locations: reqPreferredLocations.trim() || null,
-      min_beds: toNumberOrNull(reqMinBeds),
-      min_baths: toNumberOrNull(reqMinBaths),
-      deal_style: reqDealStyle === 'any' ? null : reqDealStyle,
-      property_types: reqPropertyTypes.length ? reqPropertyTypes : null,
-    };
-
-    const { data, error } = await supabase
-      .from('clients')
-      .update(patch)
-      .eq('id', client.id)
-      .select(
-        `
-        id,
-        name,
-        email,
-        phone,
-        client_type,
-        stage,
-        budget_min,
-        budget_max,
-        preferred_locations,
-        notes,
-        property_types,
-        min_beds,
-        min_baths,
-        deal_style
-      `
-      )
-      .single();
-
-    if (error) {
-      console.error('Error saving requirements:', error);
-      setReqError(error.message);
-      setSavingReqs(false);
-      return;
-    }
-
-    setClient(data as any);
-    setEditingReqs(false);
-    setSavingReqs(false);
-  };
-
-  const handleRunRecommendations = async () => {
-    if (!client) return;
-
-    setRunningRecs(true);
-    setRecsError(null);
-
-    const { data, error } = await supabase.functions.invoke('recommend-matches', {
-      body: { client_id: client.id, limit: 50 },
-    });
-
-    if (error) {
-      console.error('Error running recommend-matches:', error);
-      setRecsError(error.message);
-      setRunningRecs(false);
-      return;
-    }
-
-    // optional: you can inspect returned "top" etc.
-    console.log('recommend-matches result:', data);
-
-    await reloadRecommendations();
-    setRunningRecs(false);
-  };
-
-  const setRecStatus = async (rec: RecommendationRow, status: string) => {
-    setRecActionError(null);
-    const { error } = await supabase
-      .from('property_recommendations')
-      .update({ status })
-      .eq('id', rec.id);
-
-    if (error) {
-      console.error('Error updating rec status:', error);
-      setRecActionError(error.message);
-      return;
-    }
-
-    setRecs((prev) =>
-      prev.map((r) => (r.id === rec.id ? { ...r, status } : r))
-    );
-  };
-
-  const attachRecommendationToClient = async (rec: RecommendationRow) => {
-    if (!client) return;
-    if (!rec.mls_listings) {
-      setRecActionError('Recommendation is missing listing data.');
-      return;
-    }
-
-    setAttachingFromRecId(rec.id);
-    setRecActionError(null);
-
-    try {
-      const l = rec.mls_listings;
-
-      // 1) Create (or upsert) a row in `properties` mapped from mls_listings
-      // Assumption: `properties.mls_id` can store MLS number and is unique-ish for your brokerage
-      const address = buildPrettyAddress(l);
-      const thumb = pickThumbUrl(l.raw_payload);
-
-      // Try find existing property by mls_id first
-      const { data: existingProp, error: findErr } = await supabase
-        .from('properties')
-        .select('id')
-        .eq('mls_id', l.mls_number ?? '')
-        .maybeSingle();
-
-      if (findErr) {
-        console.error('Error searching existing property:', findErr);
-      }
-
-      let propertyId = existingProp?.id as string | undefined;
-
-      if (!propertyId) {
-        const { data: created, error: createErr } = await supabase
-          .from('properties')
-          .insert([
-            {
-              mls_id: l.mls_number ?? null,
-              address,
-              city: l.city ?? '',
-              state: l.state ?? '',
-              zip: l.postal_code ?? '',
-              list_price: l.list_price ?? null,
-              beds: l.beds ?? null,
-              baths: l.baths ?? null,
-              sqft: l.sqft ?? null,
-              lot_sqft: l.lot_sqft ?? null,
-              year_built: l.year_built ?? null,
-              property_type: l.property_type ?? null,
-              status: l.status ?? null,
-              pipeline_stage: 'new',
-              primary_photo_url: thumb,
-            },
-          ])
-          .select('id')
-          .single();
-
-        if (createErr || !created) {
-          console.error('Error creating property from MLS listing:', createErr);
-          setRecActionError(createErr?.message || 'Failed to create property from MLS listing.');
-          setAttachingFromRecId(null);
-          return;
-        }
-
-        propertyId = created.id as string;
-      }
-
-      // 2) Link property to client in client_properties
-      const { error: linkErr } = await supabase.from('client_properties').insert([
-        {
-          client_id: client.id,
-          property_id: propertyId,
-          relationship: 'favorite',
-          interest_level: 'hot',
-          is_favorite: true,
-        },
-      ]);
-
-      if (linkErr) {
-        console.error('Error linking property to client:', linkErr);
-        setRecActionError(linkErr.message);
-        setAttachingFromRecId(null);
-        return;
-      }
-
-      // 3) mark rec as attached so the edge fn won't overwrite it
-      await setRecStatus(rec, 'attached');
-
-      // 4) refresh client properties list
-      await reloadClientProps(client.id);
-
-      // 5) ensure property shows in dropdown list too
-      const { data: propRow } = await supabase
-        .from('properties')
-        .select('id, address, city, state, list_price, property_type, pipeline_stage, created_at')
-        .order('created_at', { ascending: false })
-        .limit(300);
-
-      setAllProperties((propRow || []) as any);
-    } finally {
-      setAttachingFromRecId(null);
-    }
   };
 
   const handleAddNote = async (e: React.FormEvent) => {
@@ -1166,7 +739,10 @@ export default function ClientDetailPage() {
     return d.toLocaleString();
   };
 
-  const favoriteCount = useMemo(() => clientProperties.filter((cp) => cp.is_favorite).length, [clientProperties]);
+  const favoriteCount = useMemo(
+    () => clientProperties.filter((cp) => cp.is_favorite).length,
+    [clientProperties]
+  );
 
   const now = useMemo(() => new Date(), []);
   const upcomingTours = useMemo(
@@ -1199,10 +775,6 @@ export default function ClientDetailPage() {
     return ids;
   }, [clientProperties]);
 
-  const recsNew = useMemo(() => recs.filter((r) => (r.status ?? 'new') === 'new'), [recs]);
-  const recsAttached = useMemo(() => recs.filter((r) => (r.status ?? '') === 'attached'), [recs]);
-  const recsDismissed = useMemo(() => recs.filter((r) => (r.status ?? '') === 'dismissed'), [recs]);
-
   return (
     <div className="max-w-5xl space-y-6">
       {/* Top bar */}
@@ -1212,18 +784,14 @@ export default function ClientDetailPage() {
             ← Back to Clients
           </Button>
         </Link>
+
         <div className="flex items-center gap-2">
-  <Link href={`/clients/${id}/edit`}>
-    <Button variant="secondary" className="text-xs sm:text-sm px-3 py-1.5">
-      Edit requirements
-    </Button>
-  </Link>
-
-  <span className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-wide text-slate-200">
-    Client Detail
-  </span>
-</div>
-
+          <Link href={`/clients/${id}/edit`}>
+            <Button variant="secondary" className="text-xs sm:text-sm px-3 py-1.5">
+              Edit Client
+            </Button>
+          </Link>
+        </div>
       </header>
 
       {loadingClient && (
@@ -1246,8 +814,8 @@ export default function ClientDetailPage() {
 
       {!loadingClient && !clientError && client && (
         <>
-          {/* Client summary */}
-          <Card className="space-y-3">
+          {/* 1) Client card (includes portal access) */}
+          <Card className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
               <div>
                 <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
@@ -1265,12 +833,16 @@ export default function ClientDetailPage() {
                   </div>
                   <div>
                     <div className="text-slate-400 text-xs uppercase tracking-wide">Budget</div>
-                    <div className="font-medium text-slate-50">{formatBudget(client.budget_min, client.budget_max)}</div>
+                    <div className="font-medium text-slate-50">
+                      {formatBudget(client.budget_min, client.budget_max)}
+                    </div>
                   </div>
 
                   {client.preferred_locations && (
                     <div className="sm:col-span-2">
-                      <div className="text-slate-400 text-xs uppercase tracking-wide">Preferred Locations</div>
+                      <div className="text-slate-400 text-xs uppercase tracking-wide">
+                        Preferred Locations
+                      </div>
                       <div className="font-medium text-slate-50">{client.preferred_locations}</div>
                     </div>
                   )}
@@ -1280,419 +852,315 @@ export default function ClientDetailPage() {
               <div className="text-sm text-slate-200 space-y-1">
                 {client.phone && <div>📞 {client.phone}</div>}
                 {client.email && <div>✉️ {client.email}</div>}
-                <div className="text-xs text-slate-400 pt-1">Favorites attached: {favoriteCount}</div>
+                <div className="text-xs text-slate-400 pt-1">
+                  Favorites attached: {favoriteCount}
+                </div>
               </div>
             </div>
 
             {client.notes && (
-              <p className="mt-2 text-sm text-slate-200 whitespace-pre-wrap border-t border-white/10 pt-3">
+              <p className="mt-1 text-sm text-slate-200 whitespace-pre-wrap border-t border-white/10 pt-3">
                 {client.notes}
               </p>
             )}
+
+            {/* Portal access moved here */}
+            <div className="border-t border-white/10 pt-3 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold text-white">Client portal access</h2>
+                  <p className="text-xs text-slate-300 max-w-2xl">
+                    Link this client to their portal account so they can see tours, saved homes,
+                    offers, and messages.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${
+                      portalLinks.length
+                        ? 'border-emerald-300/30 bg-emerald-500/10 text-emerald-200'
+                        : 'border-white/15 bg-white/5 text-slate-200'
+                    }`}
+                  >
+                    {portalLinks.length ? 'Linked' : 'Not linked'}
+                  </span>
+                </div>
+              </div>
+
+              <form
+                onSubmit={handleLinkPortal}
+                className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end"
+              >
+                <div className="space-y-1 md:col-span-2">
+                  <label className="block text-xs font-medium text-slate-200">
+                    Client&apos;s portal email
+                  </label>
+                  <input
+                    type="email"
+                    value={portalEmail}
+                    onChange={(e) => setPortalEmail(e.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                    placeholder="client@example.com"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    They must sign in at <code>/portal</code> first. Once they do, link them here.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-slate-200">Role</label>
+                  <select
+                    value={linkRole}
+                    onChange={(e) => setLinkRole(e.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                  >
+                    <option value="primary">Primary</option>
+                    <option value="co_buyer">Co-buyer</option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-3 flex justify-end">
+                  <Button type="submit" disabled={linkSaving}>
+                    {linkSaving ? 'Linking…' : 'Link to portal account'}
+                  </Button>
+                </div>
+
+                {linkError && <div className="md:col-span-3 text-xs text-red-300">{linkError}</div>}
+              </form>
+
+              <div className="pt-2">
+                <h3 className="text-xs font-semibold text-slate-200 mb-2">Linked portal users</h3>
+                {portalLinks.length === 0 ? (
+                  <p className="text-xs text-slate-400">No portal users linked yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {portalLinks.map((link) => (
+                      <div
+                        key={link.id}
+                        className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 flex items-center justify-between text-xs text-slate-100"
+                      >
+                        <div>
+                          <div className="font-medium">
+                            {link.portal_user.full_name || link.portal_user.email || 'Portal user'}
+                          </div>
+                          <div className="text-slate-400">{link.portal_user.email || 'No email'}</div>
+                        </div>
+                        <div className="text-right">
+                          <span className="inline-flex items-center rounded-full bg-black/40 border border-white/20 px-2 py-0.5 text-[11px] text-slate-100">
+                            {link.role || 'primary'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </Card>
 
-          {/* ✅ Requirements (edit + checkboxes) */}
+          {/* 2) Requirements (read-only; edit via /edit) */}
           <Card className="space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-white">Matching requirements</h2>
                 <p className="text-xs text-slate-300">
-                  These fields power MLS recommendations. Keep them loose enough to get results, then refine.
+                  Requirements are edited on the Edit Client page.
                 </p>
               </div>
 
-              <div className="flex gap-2">
-                {!editingReqs ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="text-xs px-3 py-1.5"
-                    onClick={() => setEditingReqs(true)}
-                  >
-                    Edit requirements
-                  </Button>
-                ) : (
-                  <>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="text-xs px-3 py-1.5"
-                      onClick={() => {
-                        setEditingReqs(false);
-                        setReqError(null);
-                        setReqBudgetMin(client.budget_min != null ? String(client.budget_min) : '');
-                        setReqBudgetMax(client.budget_max != null ? String(client.budget_max) : '');
-                        setReqPreferredLocations(client.preferred_locations ?? '');
-                        setReqMinBeds(client.min_beds != null ? String(client.min_beds) : '');
-                        setReqMinBaths(client.min_baths != null ? String(client.min_baths) : '');
-                        setReqDealStyle((client.deal_style ?? 'any') || 'any');
-                        setReqPropertyTypes(Array.isArray(client.property_types) ? client.property_types : []);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="button"
-                      className="text-xs px-3 py-1.5"
-                      disabled={savingReqs}
-                      onClick={() => {
-                        const form = document.getElementById('req-form') as HTMLFormElement | null;
-                        form?.requestSubmit();
-                      }}
-                    >
-                      {savingReqs ? 'Saving…' : 'Save requirements'}
-                    </Button>
-                  </>
-                )}
-              </div>
+              <Link href={`/clients/${id}/edit`}>
+                <Button variant="ghost" className="text-xs px-3 py-1.5">
+                  Edit Client →
+                </Button>
+              </Link>
             </div>
 
-            {!editingReqs ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-                  <div className="text-xs text-slate-400 uppercase tracking-wide">Budget</div>
-                  <div className="text-slate-100 font-medium">
-                    {formatBudget(client.budget_min, client.budget_max)}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-                  <div className="text-xs text-slate-400 uppercase tracking-wide">Locations</div>
-                  <div className="text-slate-100 font-medium">
-                    {client.preferred_locations || <span className="text-slate-500">—</span>}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-                  <div className="text-xs text-slate-400 uppercase tracking-wide">Min beds / baths</div>
-                  <div className="text-slate-100 font-medium">
-                    {(client.min_beds ?? '—')} beds • {(client.min_baths ?? '—')} baths
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-                  <div className="text-xs text-slate-400 uppercase tracking-wide">Deal style</div>
-                  <div className="text-slate-100 font-medium">{client.deal_style || 'any'}</div>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-black/40 p-3 sm:col-span-2">
-                  <div className="text-xs text-slate-400 uppercase tracking-wide">Property types</div>
-                  <div className="text-slate-100 font-medium">
-                    {client.property_types?.length ? client.property_types.join(', ') : 'any'}
-                  </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3">
+                <div className="text-xs text-slate-400 uppercase tracking-wide">Budget</div>
+                <div className="text-slate-100 font-medium">
+                  {formatBudget(client.budget_min, client.budget_max)}
                 </div>
               </div>
-            ) : (
-              <form id="req-form" onSubmit={handleSaveRequirements} className="space-y-3">
-                {reqError && <p className="text-xs text-red-300">{reqError}</p>}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium mb-1 text-slate-200">Budget Min</label>
-                    <input
-                      type="text"
-                      value={reqBudgetMin}
-                      onChange={(e) => setReqBudgetMin(e.target.value)}
-                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                      placeholder="e.g., 800000"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium mb-1 text-slate-200">Budget Max</label>
-                    <input
-                      type="text"
-                      value={reqBudgetMax}
-                      onChange={(e) => setReqBudgetMax(e.target.value)}
-                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                      placeholder="e.g., 3000000"
-                    />
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-medium mb-1 text-slate-200">Preferred Locations</label>
-                    <input
-                      type="text"
-                      value={reqPreferredLocations}
-                      onChange={(e) => setReqPreferredLocations(e.target.value)}
-                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                      placeholder="Irvine, Newport Beach, Costa Mesa"
-                    />
-                    <p className="mt-1 text-[11px] text-slate-400">
-                      Tip: commas are fine. The matching function is forgiving, but keep city names readable.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium mb-1 text-slate-200">Min Beds</label>
-                    <input
-                      type="text"
-                      value={reqMinBeds}
-                      onChange={(e) => setReqMinBeds(e.target.value)}
-                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                      placeholder="e.g., 3"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium mb-1 text-slate-200">Min Baths</label>
-                    <input
-                      type="text"
-                      value={reqMinBaths}
-                      onChange={(e) => setReqMinBaths(e.target.value)}
-                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                      placeholder="e.g., 2"
-                    />
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-medium mb-1 text-slate-200">Deal Style</label>
-                    <select
-                      value={reqDealStyle}
-                      onChange={(e) => setReqDealStyle(e.target.value)}
-                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                    >
-                      {DEAL_STYLE_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-medium mb-2 text-slate-200">Property Types</label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-xl border border-white/10 bg-black/40 p-3">
-                      {PROPERTY_TYPE_OPTIONS.map((t) => {
-                        const checked = reqPropertyTypes.includes(t);
-                        return (
-                          <label key={t} className="flex items-center gap-2 text-xs text-slate-200">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) => {
-                                const next = e.target.checked
-                                  ? [...reqPropertyTypes, t]
-                                  : reqPropertyTypes.filter((x) => x !== t);
-                                setReqPropertyTypes(next);
-                              }}
-                              className="h-3 w-3 rounded border border-white/40 bg-black/60"
-                            />
-                            <span className="truncate">{t}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                    <p className="mt-1 text-[11px] text-slate-400">
-                      Leave all unchecked = “any”.
-                    </p>
-                  </div>
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3">
+                <div className="text-xs text-slate-400 uppercase tracking-wide">Locations</div>
+                <div className="text-slate-100 font-medium">
+                  {client.preferred_locations || <span className="text-slate-500">—</span>}
                 </div>
-              </form>
-            )}
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3">
+                <div className="text-xs text-slate-400 uppercase tracking-wide">Min beds / baths</div>
+                <div className="text-slate-100 font-medium">
+                  {(client.min_beds ?? '—')} beds • {(client.min_baths ?? '—')} baths
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3">
+                <div className="text-xs text-slate-400 uppercase tracking-wide">Deal style</div>
+                <div className="text-slate-100 font-medium">{client.deal_style || 'any'}</div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/40 p-3 sm:col-span-2">
+                <div className="text-xs text-slate-400 uppercase tracking-wide">Property types</div>
+                <div className="text-slate-100 font-medium">
+                  {client.property_types?.length ? client.property_types.join(', ') : 'any'}
+                </div>
+              </div>
+            </div>
           </Card>
 
-          {/* ✅ MLS Recommendations (edge function + attach/dismiss) */}
+          {/* 3) Attached properties */}
           <Card className="space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-semibold text-white">MLS recommendations</h2>
-                <p className="text-xs text-slate-300">
-                  Click “Generate” to refresh recs from the MLS feed. Then attach the ones you want the client to see.
-                </p>
-              </div>
-
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  className="text-xs px-3 py-1.5"
-                  disabled={runningRecs}
-                  onClick={handleRunRecommendations}
-                >
-                  {runningRecs ? 'Generating…' : 'Generate recommendations'}
-                </Button>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-white">Attached properties</h2>
+              <div className="flex items-center gap-2">
+                <Link href="/properties/new">
+                  <Button variant="secondary" className="text-xs px-3 py-1.5">
+                    + Add new property
+                  </Button>
+                </Link>
               </div>
             </div>
 
-            {recsError && <p className="text-xs text-red-300">{recsError}</p>}
-            {recActionError && <p className="text-xs text-red-300">{recActionError}</p>}
+            {propsError && <p className="text-sm text-red-300">Error loading properties: {propsError}</p>}
 
-            {recsLoading ? (
-              <p className="text-sm text-slate-300">Loading recommendations…</p>
-            ) : (
-              <>
-                <div className="flex flex-wrap gap-2 text-[11px] text-slate-300">
-                  <span className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-2 py-0.5">
-                    New: {recsNew.length}
-                  </span>
-                  <span className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-2 py-0.5">
-                    Attached: {recsAttached.length}
-                  </span>
-                  <span className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-2 py-0.5">
-                    Dismissed: {recsDismissed.length}
-                  </span>
+            {/* Attach property form (kept) */}
+            <form
+              id="attach-property-form"
+              onSubmit={handleAttachProperty}
+              className="border border-white/10 rounded-md p-3 bg-black/40 text-sm space-y-2"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs font-medium mb-1 text-slate-200">Property</label>
+                  <select
+                    value={selectedPropertyId}
+                    onChange={(e) => setSelectedPropertyId(e.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
+                  >
+                    <option value="">Select property…</option>
+                    {allProperties.map((p) => (
+                      <option key={p.id} value={p.id} disabled={attachedPropertyIds.has(p.id)}>
+                        {p.address} – {p.city}, {p.state}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                {recsNew.length === 0 ? (
-                  <div className="rounded-xl border border-white/10 bg-black/40 p-3 text-sm text-slate-300">
-                    No “new” recommendations yet. Try loosening the requirements (locations/budget) and generate again.
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto rounded-lg border border-white/10 bg-black/40">
-                    <table className="min-w-full text-xs sm:text-sm">
-                      <thead className="bg-white/5 text-slate-300">
-                        <tr>
-                          <th className="px-2 py-1 text-left border-b border-white/10">Listing</th>
-                          <th className="px-2 py-1 text-left border-b border-white/10">Location</th>
-                          <th className="px-2 py-1 text-right border-b border-white/10">Price</th>
-                          <th className="px-2 py-1 text-right border-b border-white/10">Score</th>
-                          <th className="px-2 py-1 text-left border-b border-white/10">Reasons</th>
-                          <th className="px-2 py-1 text-center border-b border-white/10">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {recsNew.map((r) => {
-                          const l = r.mls_listings;
-                          const addr = l ? buildPrettyAddress(l) : '(missing listing)';
-                          const loc = l ? `${l.city ?? ''}${l.state ? `, ${l.state}` : ''}` : '—';
-                          return (
-                            <tr key={r.id} className="hover:bg-white/5 text-slate-100 align-top">
-                              <td className="border-b border-white/5 px-2 py-1">
-                                <div className="font-medium">{addr}</div>
-                                <div className="text-[11px] text-slate-400">
-                                  {l?.mls_number ? `MLS ${l.mls_number}` : '—'} • {l?.property_type || '—'} • {l?.status || '—'}
-                                </div>
-                              </td>
-                              <td className="border-b border-white/5 px-2 py-1">{loc || '—'}</td>
-                              <td className="border-b border-white/5 px-2 py-1 text-right">
-                                {formatPrice(l?.list_price ?? null)}
-                              </td>
-                              <td className="border-b border-white/5 px-2 py-1 text-right">
-                                <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[11px] text-slate-100">
-                                  {r.score ?? '—'}
-                                </span>
-                              </td>
-                              <td className="border-b border-white/5 px-2 py-1 text-[11px] text-slate-200">
-                                {r.reasons?.length ? (
-                                  <ul className="list-disc pl-4 space-y-0.5">
-                                    {r.reasons.slice(0, 4).map((x, idx) => (
-                                      <li key={idx} className="text-slate-200">
-                                        {x}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <span className="text-slate-500">—</span>
-                                )}
-                              </td>
-                              <td className="border-b border-white/5 px-2 py-1 text-center">
-                                <div className="flex items-center justify-center gap-2">
-                                  <Button
-                                    type="button"
-                                    className="text-[11px] px-2 py-1"
-                                    disabled={attachingFromRecId === r.id}
-                                    onClick={() => attachRecommendationToClient(r)}
-                                  >
-                                    {attachingFromRecId === r.id ? 'Attaching…' : 'Attach to client'}
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    className="text-[11px] px-2 py-1"
-                                    onClick={() => setRecStatus(r, 'dismissed')}
-                                  >
-                                    Dismiss
-                                  </Button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </>
-            )}
-          </Card>
+                <div>
+                  <label className="block text-xs font-medium mb-1 text-slate-200">Relationship</label>
+                  <select
+                    value={relationship}
+                    onChange={(e) => setRelationship(e.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
+                  >
+                    {RELATIONSHIP_OPTIONS.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-          {/* Client portal access */}
-          <Card className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-white">Client portal access</h2>
-                <p className="text-xs text-slate-300 max-w-xl">
-                  Link this CRM client to their Hayvn client portal account so they can see tours, saved homes, offers, and messages.
-                </p>
-              </div>
-            </div>
-
-            <form onSubmit={handleLinkPortal} className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-              <div className="space-y-1 md:col-span-2">
-                <label className="block text-xs font-medium text-slate-200">Client&apos;s portal email</label>
-                <input
-                  type="email"
-                  value={portalEmail}
-                  onChange={(e) => setPortalEmail(e.target.value)}
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                  placeholder="client@example.com"
-                />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  They must sign in at <code>/portal</code> first. Once they do, link them here.
-                </p>
+                <div>
+                  <label className="block text-xs font-medium mb-1 text-slate-200">Interest level</label>
+                  <select
+                    value={interestLevel}
+                    onChange={(e) => setInterestLevel(e.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
+                  >
+                    {INTEREST_OPTIONS.map((i) => (
+                      <option key={i} value={i}>
+                        {i}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="block text-xs font-medium text-slate-200">Role</label>
-                <select
-                  value={linkRole}
-                  onChange={(e) => setLinkRole(e.target.value)}
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+              <div className="flex items-center justify-between mt-1">
+                <label className="flex items-center gap-2 text-xs text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={isFavorite}
+                    onChange={(e) => setIsFavorite(e.target.checked)}
+                    className="h-3 w-3 rounded border border-white/40 bg-black/60"
+                  />
+                  Mark as favorite
+                </label>
+
+                <Button
+                  type="submit"
+                  disabled={addingProperty || propsLoading || allProperties.length === 0}
+                  className="text-xs px-3 py-1.5"
                 >
-                  <option value="primary">Primary</option>
-                  <option value="co_buyer">Co-buyer</option>
-                </select>
-              </div>
-
-              <div className="md:col-span-3 flex justify-end">
-                <Button type="submit" disabled={linkSaving}>
-                  {linkSaving ? 'Linking…' : 'Link to portal account'}
+                  {addingProperty ? 'Attaching…' : 'Attach property'}
                 </Button>
               </div>
 
-              {linkError && <div className="md:col-span-3 text-xs text-red-300">{linkError}</div>}
+              {addPropertyError && <p className="text-xs text-red-300 mt-1">{addPropertyError}</p>}
             </form>
 
-            <div className="border-t border-white/10 pt-3">
-              <h3 className="text-xs font-semibold text-slate-200 mb-2">Linked portal users</h3>
-              {portalLinks.length === 0 ? (
-                <p className="text-xs text-slate-400">No portal users linked yet.</p>
-              ) : (
-                <div className="space-y-2">
-                  {portalLinks.map((link) => (
-                    <div
-                      key={link.id}
-                      className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 flex items-center justify-between text-xs text-slate-100"
-                    >
-                      <div>
-                        <div className="font-medium">
-                          {link.portal_user.full_name || link.portal_user.email || 'Portal user'}
-                        </div>
-                        <div className="text-slate-400">{link.portal_user.email || 'No email'}</div>
-                      </div>
-                      <div className="text-right">
-                        <span className="inline-flex items-center rounded-full bg-black/40 border border-white/20 px-2 py-0.5 text-[11px] text-slate-100">
-                          {link.role || 'primary'}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {propsLoading && <p className="text-sm text-slate-300">Loading client properties…</p>}
+
+            {!propsLoading && clientProperties.length === 0 && (
+              <p className="text-sm text-slate-300">No properties attached yet.</p>
+            )}
+
+            {!propsLoading && clientProperties.length > 0 && (
+              <div className="overflow-x-auto rounded-lg border border-white/10 bg-black/40">
+                <table className="min-w-full text-xs sm:text-sm">
+                  <thead className="bg-white/5 text-slate-300">
+                    <tr>
+                      <th className="border-b border-white/10 px-2 py-1 text-left">Property</th>
+                      <th className="border-b border-white/10 px-2 py-1 text-left">Relationship</th>
+                      <th className="border-b border-white/10 px-2 py-1 text-left">Interest</th>
+                      <th className="border-b border-white/10 px-2 py-1 text-left">Stage</th>
+                      <th className="border-b border-white/10 px-2 py-1 text-left">Client feedback</th>
+                      <th className="border-b border-white/10 px-2 py-1 text-right">Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clientProperties.map((cp) => (
+                      <tr key={cp.id} className="hover:bg-white/5 text-slate-100">
+                        <td className="border-b border-white/5 px-2 py-1">
+                          {cp.property ? (
+                            <Link href={`/properties/${cp.property.id}`} className="text-[#EBD27A] hover:underline">
+                              {cp.property.address}
+                            </Link>
+                          ) : (
+                            <span className="text-slate-500">(missing property)</span>
+                          )}
+                          {cp.property && (
+                            <div className="text-[11px] text-slate-400">
+                              {cp.property.city}, {cp.property.state}
+                              {cp.is_favorite ? ' • ★ favorite' : ''}
+                            </div>
+                          )}
+                        </td>
+                        <td className="border-b border-white/5 px-2 py-1">{cp.relationship || '-'}</td>
+                        <td className="border-b border-white/5 px-2 py-1">{cp.interest_level || '-'}</td>
+                        <td className="border-b border-white/5 px-2 py-1">{cp.property?.pipeline_stage || '-'}</td>
+                        <td className="border-b border-white/5 px-2 py-1 text-xs">
+                          {cp.client_rating != null && <div className="font-medium">Rating: {cp.client_rating}/5</div>}
+                          {cp.client_feedback && <div className="text-slate-100 whitespace-pre-wrap">{cp.client_feedback}</div>}
+                          {cp.client_rating == null && !cp.client_feedback && <span className="text-slate-500">No feedback yet</span>}
+                        </td>
+                        <td className="border-b border-white/5 px-2 py-1 text-right">
+                          {cp.property ? formatPrice(cp.property.list_price) : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
 
-          {/* Tours */}
+          {/* 4) Tours */}
           <Card className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">Tours with this client</h2>
@@ -1761,7 +1229,7 @@ export default function ClientDetailPage() {
             )}
           </Card>
 
-          {/* Offers */}
+          {/* 5) Offers */}
           <Card className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">Offers with this client</h2>
@@ -1860,151 +1328,7 @@ export default function ClientDetailPage() {
             )}
           </Card>
 
-          {/* Attached properties */}
-          <Card className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-white">Properties</h2>
-              <Link href="/properties/new">
-                <Button variant="secondary" className="text-xs px-3 py-1.5">
-                  + Add new property
-                </Button>
-              </Link>
-            </div>
-
-            {propsError && <p className="text-sm text-red-300">Error loading properties: {propsError}</p>}
-
-            {/* Attach property form */}
-            <form
-              id="attach-property-form"
-              onSubmit={handleAttachProperty}
-              className="border border-white/10 rounded-md p-3 bg-black/40 text-sm space-y-2"
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-slate-200">Property</label>
-                  <select
-                    value={selectedPropertyId}
-                    onChange={(e) => setSelectedPropertyId(e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
-                  >
-                    <option value="">Select property…</option>
-                    {allProperties.map((p) => (
-                      <option key={p.id} value={p.id} disabled={attachedPropertyIds.has(p.id)}>
-                        {p.address} – {p.city}, {p.state}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-slate-200">Relationship</label>
-                  <select
-                    value={relationship}
-                    onChange={(e) => setRelationship(e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
-                  >
-                    {RELATIONSHIP_OPTIONS.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-slate-200">Interest level</label>
-                  <select
-                    value={interestLevel}
-                    onChange={(e) => setInterestLevel(e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
-                  >
-                    {INTEREST_OPTIONS.map((i) => (
-                      <option key={i} value={i}>
-                        {i}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between mt-1">
-                <label className="flex items-center gap-2 text-xs text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={isFavorite}
-                    onChange={(e) => setIsFavorite(e.target.checked)}
-                    className="h-3 w-3 rounded border border-white/40 bg-black/60"
-                  />
-                  Mark as favorite
-                </label>
-
-                <Button type="submit" disabled={addingProperty || propsLoading || allProperties.length === 0} className="text-xs px-3 py-1.5">
-                  {addingProperty ? 'Attaching…' : 'Attach property'}
-                </Button>
-              </div>
-
-              {addPropertyError && <p className="text-xs text-red-300 mt-1">{addPropertyError}</p>}
-            </form>
-
-            {propsLoading && <p className="text-sm text-slate-300">Loading client properties…</p>}
-
-            {!propsLoading && clientProperties.length === 0 && (
-              <p className="text-sm text-slate-300">
-                No properties attached yet. Use the MLS recommendations above (Attach) or the form here.
-              </p>
-            )}
-
-            {!propsLoading && clientProperties.length > 0 && (
-              <div className="overflow-x-auto rounded-lg border border-white/10 bg-black/40">
-                <table className="min-w-full text-xs sm:text-sm">
-                  <thead className="bg-white/5 text-slate-300">
-                    <tr>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">Property</th>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">Relationship</th>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">Interest</th>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">Stage</th>
-                      <th className="border-b border-white/10 px-2 py-1 text-left">Client feedback</th>
-                      <th className="border-b border-white/10 px-2 py-1 text-right">Price</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {clientProperties.map((cp) => (
-                      <tr key={cp.id} className="hover:bg-white/5 text-slate-100">
-                        <td className="border-b border-white/5 px-2 py-1">
-                          {cp.property ? (
-                            <Link href={`/properties/${cp.property.id}`} className="text-[#EBD27A] hover:underline">
-                              {cp.property.address}
-                            </Link>
-                          ) : (
-                            <span className="text-slate-500">(missing property)</span>
-                          )}
-                          {cp.property && (
-                            <div className="text-[11px] text-slate-400">
-                              {cp.property.city}, {cp.property.state}
-                              {cp.is_favorite ? ' • ★ favorite' : ''}
-                            </div>
-                          )}
-                        </td>
-                        <td className="border-b border-white/5 px-2 py-1">{cp.relationship || '-'}</td>
-                        <td className="border-b border-white/5 px-2 py-1">{cp.interest_level || '-'}</td>
-                        <td className="border-b border-white/5 px-2 py-1">{cp.property?.pipeline_stage || '-'}</td>
-                        <td className="border-b border-white/5 px-2 py-1 text-xs">
-                          {cp.client_rating != null && <div className="font-medium">Rating: {cp.client_rating}/5</div>}
-                          {cp.client_feedback && <div className="text-slate-100 whitespace-pre-wrap">{cp.client_feedback}</div>}
-                          {cp.client_rating == null && !cp.client_feedback && <span className="text-slate-500">No feedback yet</span>}
-                        </td>
-                        <td className="border-b border-white/5 px-2 py-1 text-right">
-                          {cp.property ? formatPrice(cp.property.list_price) : '-'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-
-          {/* Messages to client portal */}
+          {/* 6) Messages to client portal */}
           <Card className="space-y-3">
             <h2 className="text-lg font-semibold text-white">Messages to client portal</h2>
 
@@ -2094,7 +1418,7 @@ export default function ClientDetailPage() {
             )}
           </Card>
 
-          {/* Internal notes */}
+          {/* 7) Internal notes */}
           <Card className="space-y-3">
             <h2 className="text-lg font-semibold text-white">Internal notes</h2>
 
