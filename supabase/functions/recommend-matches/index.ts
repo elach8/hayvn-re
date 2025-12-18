@@ -107,6 +107,11 @@ function clampLimit(n: number) {
   return Number.isFinite(n) ? Math.max(5, Math.min(200, n)) : 50;
 }
 
+// NEW: clamp target queue size (how many "new" recs we want to maintain)
+function clampTargetNew(n: number) {
+  return Number.isFinite(n) ? Math.max(1, Math.min(25, Math.floor(n))) : 5;
+}
+
 function budgetWindow(min: number | null, max: number | null, widenPct: number) {
   // widenPct: 0.10 means ±10%
   const minAllowed = min != null ? Math.floor(min * (1 - widenPct)) : null;
@@ -166,6 +171,7 @@ serve(async (req) => {
 
   const client_id = (payload?.client_id ?? "").toString();
   const limit = clampLimit(Number(payload?.limit ?? 50));
+  const target_new = clampTargetNew(Number(payload?.target_new ?? 5)); // NEW
 
   if (!client_id) {
     return json(400, { error: "client_id is required" }, cors);
@@ -214,6 +220,50 @@ serve(async (req) => {
       cors,
     );
   }
+
+  // --- Load existing recs for this client (queue semantics) ---
+  const { data: existing, error: existingErr } = await supabaseAdmin
+    .from("property_recommendations")
+    .select("mls_listing_id, status")
+    .eq("client_id", client_id);
+
+  if (existingErr) {
+    return json(500, { error: existingErr.message }, cors);
+  }
+
+  const statusByListing = new Map<string, string>();
+  let existingNewCount = 0;
+  for (const r of existing ?? []) {
+    const lid = (r as any).mls_listing_id as string;
+    const st = (r as any).status as string;
+    statusByListing.set(lid, st);
+    if (st === "new") existingNewCount += 1;
+  }
+
+  // NEW: If we already have enough "new" items, do nothing (no recompute/no writes)
+  if (existingNewCount >= target_new) {
+    return json(
+      200,
+      {
+        ok: true,
+        client_id,
+        brokerage_id: brokerageId,
+        mode_used: "noop",
+        widen_used: 0,
+        preferred_tokens: parsePreferredLocations(c.preferred_locations),
+        candidates_scored: 0,
+        recommendations_written: 0,
+        recommendations_deleted: 0,
+        existing_new_count: existingNewCount,
+        target_new,
+        needed_new: 0,
+        top: [],
+      },
+      cors,
+    );
+  }
+
+  const neededNew = Math.max(0, target_new - existingNewCount);
 
   const preferredTokens = parsePreferredLocations(c.preferred_locations);
   const budgetMin = c.budget_min ?? null;
@@ -280,6 +330,8 @@ serve(async (req) => {
       widenUsed = 0.10;
       rows = await fetchCandidates(modeUsed, widenUsed);
 
+      // NOTE: keep the existing "limit" logic for how hard we try to fetch candidates,
+      // but we will only *insert* neededNew at the end.
       if (rows.length < limit) {
         modeUsed = "priceOnly";
         widenUsed = 0.10;
@@ -309,7 +361,6 @@ serve(async (req) => {
   // --- Score + reasons ---
   const tokenKeys = preferredTokens.map(normalizeKey);
   const zipTokens = preferredTokens.filter(isZipToken);
-  const cityTokens = preferredTokens.filter((t) => !isZipToken(t));
 
   const scoredAll = rows.map((l) => {
     const reasons: string[] = [];
@@ -383,9 +434,7 @@ serve(async (req) => {
     return { l, score, reasons };
   });
 
-  // Dynamic min score:
-  // - If we have budget + locations, keep higher bar.
-  // - If client data is sparse or inputs are messy, lower bar so you still get recs.
+  // Dynamic min score
   const hasBudgetRange = budgetMin != null && budgetMax != null;
   const hasPrefs = preferredTokens.length > 0;
 
@@ -394,45 +443,29 @@ serve(async (req) => {
   else if (hasBudgetRange && !hasPrefs) minScore = 18;
   else if (!hasBudgetRange && hasPrefs) minScore = 20;
 
-  let scored = scoredAll
+  // Rank candidates (do NOT slice to "limit" yet; we will slice to neededNew after excluding existing recs)
+  let ranked = scoredAll
     .filter((x) => x.score >= minScore)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+    .sort((a, b) => b.score - a.score);
 
-  // If we got nothing, degrade gracefully: take top-N anyway (so agent sees *something*)
-  if (scored.length === 0) {
-    scored = scoredAll.sort((a, b) => b.score - a.score).slice(0, Math.min(limit, 25));
+  // If we got nothing, degrade gracefully: take top-N anyway
+  if (ranked.length === 0) {
+    ranked = scoredAll.sort((a, b) => b.score - a.score).slice(0, Math.min(limit, 25));
   }
 
-  const candidateIds = scored.map((x) => x.l.id);
+  // NEW: Only pick listings we have never recommended before (any status),
+  // and only pick enough to top up the "new" queue.
+  const picked = ranked
+    .filter((x) => !statusByListing.has(x.l.id))
+    .slice(0, neededNew);
 
-  // --- Load existing recs for this client so we don't overwrite attached/dismissed ---
-  const { data: existing, error: existingErr } = await supabaseAdmin
-    .from("property_recommendations")
-    .select("mls_listing_id, status")
-    .eq("client_id", client_id);
-
-  if (existingErr) {
-    return json(500, { error: existingErr.message }, cors);
-  }
-
-  const statusByListing = new Map<string, string>();
-  for (const r of existing ?? []) {
-    statusByListing.set((r as any).mls_listing_id, (r as any).status);
-  }
-
-  const upserts = scored
-    .filter((x) => {
-      const st = statusByListing.get(x.l.id);
-      return !st || st === "new"; // only create/update "new"
-    })
-    .map((x) => ({
-      client_id,
-      mls_listing_id: x.l.id,
-      score: x.score,
-      reasons: x.reasons,
-      status: "new",
-    }));
+  const upserts = picked.map((x) => ({
+    client_id,
+    mls_listing_id: x.l.id,
+    score: x.score,
+    reasons: x.reasons,
+    status: "new",
+  }));
 
   // Upsert recommendations
   let upserted = 0;
@@ -448,24 +481,8 @@ serve(async (req) => {
     upserted = upData?.length ?? 0;
   }
 
-  // Prune stale "new" recs that are no longer candidates
-  // (Skip pruning if we have zero candidates to avoid accidental wipeouts.)
-  let deleted = 0;
-  if (candidateIds.length > 0) {
-    const inList = `(${candidateIds.map((id) => `"${id}"`).join(",")})`;
-    const { data: delData, error: delErr } = await supabaseAdmin
-      .from("property_recommendations")
-      .delete()
-      .eq("client_id", client_id)
-      .eq("status", "new")
-      .not("mls_listing_id", "in", inList)
-      .select("id");
-
-    if (delErr) {
-      return json(500, { error: delErr.message }, cors);
-    }
-    deleted = delData?.length ?? 0;
-  }
+  // NEW: Do NOT prune in queue mode (keeps unreviewed queue stable)
+  const deleted = 0;
 
   return json(
     200,
@@ -479,7 +496,10 @@ serve(async (req) => {
       candidates_scored: rows.length,
       recommendations_written: upserted,
       recommendations_deleted: deleted,
-      top: scored.map((x) => ({
+      existing_new_count: existingNewCount,
+      target_new,
+      needed_new: neededNew,
+      top: picked.map((x) => ({
         mls_listing_id: x.l.id,
         mls_number: x.l.mls_number,
         city: x.l.city,

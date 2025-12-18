@@ -45,6 +45,8 @@ type RecommendationRow = {
   reasons: any;
   status: 'new' | 'attached' | 'dismissed';
   created_at: string;
+  // NEW (schema): property_recommendations.agent_note
+  agent_note?: string | null;
   mls_listings: Listing | null;
 };
 
@@ -212,12 +214,7 @@ function extractPhotoUrlsFromRawPayload(raw: any): string[] {
   }
 
   // Sometimes the “primary” only exists but plus additional keys
-  urls.push(
-    rp.PrimaryPhotoUrl,
-    rp.primaryPhotoUrl,
-    rp.ThumbnailUrl,
-    rp.thumbnailUrl
-  );
+  urls.push(rp.PrimaryPhotoUrl, rp.primaryPhotoUrl, rp.ThumbnailUrl, rp.thumbnailUrl);
 
   return uniqUrls(urls.filter(Boolean) as string[]);
 }
@@ -243,18 +240,22 @@ export default function MatchDetailPage() {
 
   const [actionBusy, setActionBusy] = useState(false);
 
+  // NEW: agent note textarea state (saved to recommendation + copied to client_properties on attach)
+  const [agentNote, setAgentNote] = useState<string>('');
+  const [noteDirty, setNoteDirty] = useState(false);
+
   const listing = rec?.mls_listings ?? null;
 
   const goBackToMatches = () => {
-    // Always go to Matches; Matches page will restore selection + scroll.
     router.push('/matches');
   };
 
   // Build a unified list of photo URLs:
+  // FIX: Prefer table photos; only fall back to raw payload if table is empty
   const allPhotoUrls = useMemo(() => {
-    const fromTable = photos.map((p) => p.url).filter(Boolean);
-    const merged = uniqUrls([...(fromTable as string[]), ...rawPhotos]);
-    return merged;
+    const fromTable = photos.map((p) => p.url).filter(Boolean) as string[];
+    if (fromTable.length > 0) return uniqUrls(fromTable);
+    return uniqUrls(rawPhotos);
   }, [photos, rawPhotos]);
 
   const hasPhotos = allPhotoUrls.length > 0;
@@ -321,12 +322,7 @@ export default function MatchDetailPage() {
     if (!listing) return null;
     if (listing.beds != null) return listing.beds;
     const rp = listing.raw_payload || {};
-    return (
-      toNum(rp?.BedroomsTotal) ??
-      toNum(rp?.BedroomsTotalInteger) ??
-      toNum(rp?.BedsTotal) ??
-      null
-    );
+    return toNum(rp?.BedroomsTotal) ?? toNum(rp?.BedroomsTotalInteger) ?? toNum(rp?.BedsTotal) ?? null;
   }, [listing]);
 
   const derivedBaths = useMemo(() => {
@@ -405,6 +401,7 @@ export default function MatchDetailPage() {
           reasons,
           status,
           created_at,
+          agent_note,
           mls_listings (
             id,
             mls_number,
@@ -448,6 +445,10 @@ export default function MatchDetailPage() {
       const typed = recRow as any as RecommendationRow;
       setRec(typed);
 
+      // init note from DB (only if user hasn't started typing)
+      setAgentNote((typed as any)?.agent_note ?? '');
+      setNoteDirty(false);
+
       // Photos from table
       const listingId = typed?.mls_listings?.id;
       if (listingId) {
@@ -479,29 +480,45 @@ export default function MatchDetailPage() {
     if (recId) load();
   }, [recId]);
 
-  const handleDismiss = async () => {
-    if (!rec) return;
-    setActionBusy(true);
-    setError(null);
+  const persistNoteToRecommendation = async (nextStatus?: 'new' | 'attached' | 'dismissed') => {
+    if (!rec) return { ok: false as const, error: 'Missing recommendation.' };
+    const updates: any = { agent_note: agentNote ?? '' };
+    if (nextStatus) updates.status = nextStatus;
 
     const { error } = await supabase
       .from('property_recommendations')
-      .update({ status: 'dismissed' })
+      .update(updates)
       .eq('id', rec.id);
 
-    if (error) {
-      setError(error.message);
+    if (error) return { ok: false as const, error: error.message };
+    return { ok: true as const };
+  };
+
+  const handleDismiss = async () => {
+    if (!rec) return;
+    if (rec.status !== 'new') return;
+
+    setActionBusy(true);
+    setError(null);
+
+    // Save note + status together
+    const res = await persistNoteToRecommendation('dismissed');
+    if (!res.ok) {
+      setError(res.error);
       setActionBusy(false);
       return;
     }
 
-    setRec((prev) => (prev ? { ...prev, status: 'dismissed' } : prev));
+    setRec((prev) => (prev ? { ...prev, status: 'dismissed', agent_note: agentNote } : prev));
     setActionBusy(false);
+
+    // Auto-return to queue
+    router.push('/matches');
   };
 
   const handleAttach = async () => {
     if (!rec || !listing) return;
-    if (rec.status === 'attached') return;
+    if (rec.status !== 'new') return;
 
     setActionBusy(true);
     setError(null);
@@ -580,6 +597,7 @@ export default function MatchDetailPage() {
       return;
     }
 
+    // Attach relationship + save agent notes on client_properties
     const { error: cpErr } = await supabase
       .from('client_properties')
       .upsert(
@@ -591,7 +609,8 @@ export default function MatchDetailPage() {
           is_favorite: false,
           client_feedback: null,
           client_rating: null,
-        },
+          agent_notes: agentNote ?? null, // NEW (schema): client_properties.agent_notes
+        } as any,
         { onConflict: 'client_id,property_id' as any }
       );
 
@@ -601,19 +620,19 @@ export default function MatchDetailPage() {
       return;
     }
 
-    const { error: recErr } = await supabase
-      .from('property_recommendations')
-      .update({ status: 'attached' })
-      .eq('id', rec.id);
-
-    if (recErr) {
-      setError(`Attached, but could not update recommendation status: ${recErr.message}`);
+    // Save note + update recommendation status
+    const res = await persistNoteToRecommendation('attached');
+    if (!res.ok) {
+      setError(`Attached, but could not update recommendation: ${res.error}`);
       setActionBusy(false);
       return;
     }
 
-    setRec((prev) => (prev ? { ...prev, status: 'attached' } : prev));
+    setRec((prev) => (prev ? { ...prev, status: 'attached', agent_note: agentNote } : prev));
     setActionBusy(false);
+
+    // Auto-return to queue
+    router.push('/matches');
   };
 
   const reasons = normalizeReasons(rec?.reasons);
@@ -626,19 +645,15 @@ export default function MatchDetailPage() {
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
               Match Detail
             </h1>
-            <p className="text-sm text-slate-300">Review photos + details, then attach to the client.</p>
+            <p className="text-sm text-slate-300">
+              Review photos + details, then attach to the client.
+            </p>
           </div>
 
           <div className="flex gap-2">
             <Button variant="ghost" className="text-xs sm:text-sm" onClick={goBackToMatches}>
               ← Back
             </Button>
-
-            <Link href="/matches" onClick={() => router.push('/matches')}>
-              <Button variant="ghost" className="text-xs sm:text-sm">
-                Matches
-              </Button>
-            </Link>
           </div>
         </header>
 
@@ -772,7 +787,12 @@ export default function MatchDetailPage() {
                         title={`Photo ${idx + 1}`}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt={`Photo ${idx + 1}`} className="h-16 w-24 object-cover" draggable={false} />
+                        <img
+                          src={url}
+                          alt={`Photo ${idx + 1}`}
+                          className="h-16 w-24 object-cover"
+                          draggable={false}
+                        />
                       </button>
                     );
                   })}
@@ -831,7 +851,10 @@ export default function MatchDetailPage() {
                       : '—'
                   }
                 />
-                <Info label="Sqft" value={derivedSqft != null ? Number(derivedSqft).toLocaleString() : '—'} />
+                <Info
+                  label="Sqft"
+                  value={derivedSqft != null ? Number(derivedSqft).toLocaleString() : '—'}
+                />
                 <Info label="Year" value={derivedYear != null ? String(derivedYear) : '—'} />
               </div>
 
@@ -851,13 +874,32 @@ export default function MatchDetailPage() {
                 </div>
               )}
 
+              {/* NEW: notes */}
+              <div className="space-y-1 pt-1">
+                <div className="text-[11px] font-medium text-slate-300">
+                  Agent notes <span className="text-slate-500">(saved; shown to client when attached)</span>
+                </div>
+                <textarea
+                  value={agentNote}
+                  onChange={(e) => {
+                    setAgentNote(e.target.value);
+                    setNoteDirty(true);
+                  }}
+                  placeholder="Example: Great layout + within budget. Close to preferred area. Worth a tour."
+                  className="w-full min-h-[110px] rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                />
+                {noteDirty ? (
+                  <div className="text-[11px] text-slate-500">Note will be saved when you Attach or Dismiss.</div>
+                ) : null}
+              </div>
+
               <div className="pt-2 space-y-2">
                 <Button
                   className="w-full"
                   onClick={handleAttach}
-                  disabled={actionBusy || rec.status === 'attached' || rec.status === 'dismissed'}
+                  disabled={actionBusy || rec.status !== 'new'}
                 >
-                  {rec.status === 'attached' ? 'Already attached' : actionBusy ? 'Working…' : 'Attach to client'}
+                  {actionBusy ? 'Working…' : 'Attach to client'}
                 </Button>
 
                 <Button
@@ -897,3 +939,4 @@ function Info({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
