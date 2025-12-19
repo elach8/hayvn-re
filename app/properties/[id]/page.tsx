@@ -1,10 +1,13 @@
 // app/properties/[id]/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
+import { Card } from '../../components/Card';
+import { Button } from '../../components/Button';
+import { ListingPhotoCarousel } from '../../components/ListingPhotoCarousel';
 
 type Property = {
   id: string;
@@ -17,6 +20,8 @@ type Property = {
   pipeline_stage: string;
   mls_id: string | null;
   mls_url: string | null;
+
+  primary_photo_url?: string | null;
 
   // commercial / industrial fields
   apn: string | null;
@@ -66,6 +71,42 @@ type PropertyClient = {
   client: ClientSummary | null;
 };
 
+type MlsListing = {
+  id: string; // mls_listings.id
+  mls_number: string;
+  status: string | null;
+  list_price: number | null;
+  property_type: string | null;
+  street_number: string | null;
+  street_dir_prefix: string | null;
+  street_name: string | null;
+  street_suffix: string | null;
+  unit: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  beds: number | null;
+  baths: number | null;
+  sqft: number | null;
+  year_built: number | null;
+  raw_payload: any;
+};
+
+type PhotoRow = {
+  id: string;
+  listing_id: string;
+  sort_order: number | null;
+  url: string;
+  caption: string | null;
+  created_at: string;
+};
+
+function toNum(val: any): number | null {
+  if (val == null) return null;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : null;
+}
+
 export default function PropertyDetailPage() {
   const params = useParams();
   const id = params?.id as string;
@@ -75,6 +116,10 @@ export default function PropertyDetailPage() {
   const [loading, setLoading] = useState(true);
   const [notesLoading, setNotesLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // MLS photo support
+  const [mlsListing, setMlsListing] = useState<MlsListing | null>(null);
+  const [photoRows, setPhotoRows] = useState<PhotoRow[]>([]);
 
   // Contacts state
   const [allContacts, setAllContacts] = useState<Contact[]>([]);
@@ -101,15 +146,11 @@ export default function PropertyDetailPage() {
 
   // Attach client state
   const [selectedClientId, setSelectedClientId] = useState<string>('');
-  const [clientRelationship, setClientRelationship] =
-    useState<string>('favorite');
-  const [clientInterestLevel, setClientInterestLevel] =
-    useState<string>('hot');
+  const [clientRelationship, setClientRelationship] = useState<string>('favorite');
+  const [clientInterestLevel, setClientInterestLevel] = useState<string>('hot');
   const [clientIsFavorite, setClientIsFavorite] = useState<boolean>(true);
   const [attachingClient, setAttachingClient] = useState(false);
-  const [attachClientError, setAttachClientError] = useState<string | null>(
-    null
-  );
+  const [attachClientError, setAttachClientError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -132,6 +173,7 @@ export default function PropertyDetailPage() {
           pipeline_stage,
           mls_id,
           mls_url,
+          primary_photo_url,
           apn,
           zoning,
           num_units,
@@ -147,11 +189,74 @@ export default function PropertyDetailPage() {
       if (error) {
         console.error('Error loading property:', error);
         setError(error.message);
+        setProperty(null);
       } else {
         setProperty(data as Property | null);
       }
 
       setLoading(false);
+
+      const p = data as Property | null;
+      if (p?.mls_id) {
+        // Look up listing by mls_number to pull raw payload + photos
+        const { data: listingRow, error: lErr } = await supabase
+          .from('mls_listings')
+          .select(
+            `
+            id,
+            mls_number,
+            status,
+            list_price,
+            property_type,
+            street_number,
+            street_dir_prefix,
+            street_name,
+            street_suffix,
+            unit,
+            city,
+            state,
+            postal_code,
+            beds,
+            baths,
+            sqft,
+            year_built,
+            raw_payload
+          `
+          )
+          .eq('mls_number', p.mls_id)
+          .maybeSingle();
+
+        if (lErr) {
+          console.warn('MLS listing lookup error:', lErr.message);
+          setMlsListing(null);
+          setPhotoRows([]);
+          return;
+        }
+
+        const typed = (listingRow as any as MlsListing) ?? null;
+        setMlsListing(typed);
+
+        if (typed?.id) {
+          const { data: rows, error: photoErr } = await supabase
+            .from('mls_listing_photos')
+            .select('id, listing_id, sort_order, url, caption, created_at')
+            .eq('listing_id', typed.id)
+            .order('sort_order', { ascending: true })
+            .limit(200);
+
+          if (photoErr) {
+            console.warn('MLS listing photos error:', photoErr.message);
+            setPhotoRows([]);
+          } else {
+            setPhotoRows((rows ?? []) as PhotoRow[]);
+          }
+        } else {
+          setPhotoRows([]);
+        }
+      } else {
+        setMlsListing(null);
+        setPhotoRows([]);
+      }
     };
 
     const loadNotes = async () => {
@@ -198,9 +303,7 @@ export default function PropertyDetailPage() {
 
       const { data, error } = await supabase
         .from('property_contacts')
-        .select(
-          'id, relationship, contacts ( id, name, role, phone, email )'
-        )
+        .select('id, relationship, contacts ( id, name, role, phone, email )')
         .eq('property_id', id)
         .order('relationship', { ascending: true });
 
@@ -234,9 +337,7 @@ export default function PropertyDetailPage() {
 
       const { data, error } = await supabase
         .from('clients')
-        .select(
-          'id, name, client_type, stage, budget_min, budget_max'
-        )
+        .select('id, name, client_type, stage, budget_min, budget_max')
         .order('created_at', { ascending: false })
         .limit(200);
 
@@ -311,6 +412,32 @@ export default function PropertyDetailPage() {
     loadPropertyClients();
   }, [id]);
 
+  const derivedBeds = useMemo(() => {
+    if (mlsListing?.beds != null) return mlsListing.beds;
+    const rp = mlsListing?.raw_payload ?? null;
+    return rp ? toNum(rp?.BedroomsTotal) ?? toNum(rp?.BedroomsTotalInteger) ?? toNum(rp?.BedsTotal) ?? null : null;
+  }, [mlsListing]);
+
+  const derivedBaths = useMemo(() => {
+    if (mlsListing?.baths != null) return mlsListing.baths;
+    const rp = mlsListing?.raw_payload ?? null;
+    return rp
+      ? toNum(rp?.BathroomsTotalInteger) ?? toNum(rp?.BathroomsTotal) ?? toNum(rp?.BathsTotal) ?? null
+      : null;
+  }, [mlsListing]);
+
+  const derivedSqft = useMemo(() => {
+    if (mlsListing?.sqft != null) return mlsListing.sqft;
+    const rp = mlsListing?.raw_payload ?? null;
+    return rp ? toNum(rp?.LivingArea) ?? toNum(rp?.BuildingAreaTotal) ?? toNum(rp?.LivingAreaSquareFeet) ?? null : null;
+  }, [mlsListing]);
+
+  const derivedYear = useMemo(() => {
+    if (mlsListing?.year_built != null) return mlsListing.year_built;
+    const rp = mlsListing?.raw_payload ?? null;
+    return rp ? toNum(rp?.YearBuilt) ?? null : null;
+  }, [mlsListing]);
+
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newNote.trim()) {
@@ -326,7 +453,7 @@ export default function PropertyDetailPage() {
       {
         property_id: property.id,
         body: newNote.trim(),
-        author: 'Ed', // later: link to actual user
+        author: 'Ed',
       },
     ]);
 
@@ -337,7 +464,6 @@ export default function PropertyDetailPage() {
       return;
     }
 
-    // Reload notes
     const { data, error: reloadError } = await supabase
       .from('property_notes')
       .select('id, body, author, created_at')
@@ -381,12 +507,9 @@ export default function PropertyDetailPage() {
       return;
     }
 
-    // Reload property contacts
     const { data, error: reloadError } = await supabase
       .from('property_contacts')
-      .select(
-        'id, relationship, contacts ( id, name, role, phone, email )'
-      )
+      .select('id, relationship, contacts ( id, name, role, phone, email )')
       .eq('property_id', property.id)
       .order('relationship', { ascending: true });
 
@@ -441,7 +564,6 @@ export default function PropertyDetailPage() {
       return;
     }
 
-    // Reload property clients
     const { data, error: reloadError } = await supabase
       .from('client_properties')
       .select(
@@ -488,346 +610,243 @@ export default function PropertyDetailPage() {
     setAttachingClient(false);
   };
 
-  const formatCurrency = (value: number | null) => {
-    if (value == null) return '-';
-    return `$${value.toLocaleString()}`;
-  };
+  const formatCurrency = (value: number | null) => (value == null ? '—' : `$${value.toLocaleString()}`);
 
-  const formatPercent = (value: number | null) => {
-    if (value == null) return '-';
-    return `${value.toLocaleString()}%`;
-  };
+  const formatPercent = (value: number | null) => (value == null ? '—' : `${value.toLocaleString()}%`);
 
   const formatCapRate = (value: number | null) => {
-    if (value == null) return '-';
-    // If they typed 6.5, show 6.5%; if 0.065, show 6.5%
-    if (value > 0 && value < 1) {
-      return `${(value * 100).toLocaleString()}%`;
-    }
+    if (value == null) return '—';
+    if (value > 0 && value < 1) return `${(value * 100).toLocaleString()}%`;
     return `${value.toLocaleString()}%`;
   };
 
   const formatBudget = (min: number | null, max: number | null) => {
-    if (min == null && max == null) return '-';
-    const toMoney = (v: number | null) =>
-      v == null ? '' : `$${v.toLocaleString()}`;
+    if (min == null && max == null) return '—';
+    const toMoney = (v: number | null) => (v == null ? '' : `$${v.toLocaleString()}`);
     if (min != null && max != null) return `${toMoney(min)} – ${toMoney(max)}`;
     if (min != null) return `${toMoney(min)}+`;
     return `up to ${toMoney(max)}`;
   };
 
   const inputClass =
-    'w-full rounded-md border border-white/15 bg-black/60 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500';
-  const labelClass = 'block text-xs font-medium text-slate-300 mb-1';
+    'w-full rounded-lg border border-white/15 bg-black/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]';
+  const labelClass = 'block text-xs font-medium text-slate-200 mb-1';
 
   return (
-    <main className="min-h-screen max-w-4xl mx-auto text-slate-100">
-      <header className="flex items-center justify-between mb-5 gap-2 pt-6">
-        <Link
-          href="/properties"
-          className="text-xs sm:text-sm text-slate-300 hover:text-slate-50 hover:underline"
-        >
-          ← Back to Properties
-        </Link>
+    <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
+      <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
+        <header className="flex items-center justify-between gap-3">
+          <Link href="/properties">
+            <Button variant="ghost" className="text-xs sm:text-sm px-3 py-1.5">
+              ← Back to Properties
+            </Button>
+          </Link>
 
-        <span className="text-[11px] px-2 py-1 rounded-full bg-white/5 text-slate-200 border border-white/10">
-          Property detail
-        </span>
-      </header>
+          <span className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-wide text-slate-200">
+            Property Detail
+          </span>
+        </header>
 
-      {loading && <p className="text-sm text-slate-200">Loading property…</p>}
+        {loading && (
+          <Card>
+            <p className="text-sm text-slate-300">Loading property…</p>
+          </Card>
+        )}
 
-      {error && (
-        <p className="text-sm text-red-100 bg-red-500/20 border border-red-500/40 rounded-lg px-3 py-2 mb-4">
-          Error loading property: {error}
-        </p>
-      )}
+        {error && (
+          <Card>
+            <p className="text-sm text-red-300">Error loading property: {error}</p>
+          </Card>
+        )}
 
-      {!loading && !error && !property && (
-        <p className="text-sm text-slate-200">Property not found.</p>
-      )}
+        {!loading && !error && !property && (
+          <Card>
+            <p className="text-sm text-slate-300">Property not found.</p>
+          </Card>
+        )}
 
-      {!loading && !error && property && (
-        <div className="pb-8 space-y-6">
-          {/* Property summary */}
-          <section className="border border-white/10 rounded-xl bg-black/40 p-4 sm:p-5 space-y-3">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h1 className="text-xl sm:text-2xl font-semibold tracking-tight mb-1">
-                  {property.address}
-                </h1>
-                <p className="text-sm text-slate-300">
-                  {property.city}, {property.state} {property.zip}
-                </p>
-              </div>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 text-slate-300 border border-white/10">
-                {property.pipeline_stage}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm mt-3">
-              <div>
-                <div className="text-slate-400">List price</div>
-                <div className="font-semibold">
-                  {formatCurrency(property.list_price)}
-                </div>
-              </div>
-              <div>
-                <div className="text-slate-400">Type</div>
-                <div className="font-semibold">
-                  {property.property_type || '—'}
-                </div>
-              </div>
-              <div>
-                <div className="text-slate-400">Pipeline stage</div>
-                <div className="font-semibold capitalize">
-                  {property.pipeline_stage.replace('_', ' ')}
-                </div>
-              </div>
-              {property.mls_id && (
-                <div>
-                  <div className="text-slate-400">MLS ID</div>
-                  <div className="font-semibold">{property.mls_id}</div>
-                </div>
-              )}
-              {property.mls_url && (
-                <div className="sm:col-span-2">
-                  <div className="text-slate-400">MLS link</div>
-                  <a
-                    href={property.mls_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-indigo-300 hover:text-indigo-200 hover:underline break-all"
-                  >
-                    Open in MLS →
-                  </a>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* Investment metrics / commercial info */}
-          {(property.apn ||
-            property.zoning ||
-            property.num_units != null ||
-            property.occupancy_pct != null ||
-            property.noi_annual != null ||
-            property.cap_rate != null ||
-            property.parking_spaces != null) && (
-            <section className="border border-white/10 rounded-xl bg-black/40 p-4 sm:p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-semibold text-slate-100">
-                  Investment metrics
-                </h2>
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 text-slate-400 border border-white/10">
-                  Commercial / industrial
-                </span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-                {property.apn && (
-                  <div>
-                    <div className="text-slate-400">APN</div>
-                    <div className="font-semibold">{property.apn}</div>
-                  </div>
-                )}
-                {property.zoning && (
-                  <div>
-                    <div className="text-slate-400">Zoning</div>
-                    <div className="font-semibold">{property.zoning}</div>
-                  </div>
-                )}
-                {property.num_units != null && (
-                  <div>
-                    <div className="text-slate-400">Units</div>
-                    <div className="font-semibold">
-                      {property.num_units}
+        {!loading && !error && property && (
+          <>
+            {/* Hero + photos (matches-style) */}
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+              <Card className="lg:col-span-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-lg font-semibold text-white truncate">
+                      <span className="text-[#EBD27A]">{property.address}</span>
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {property.city}, {property.state} {property.zip}
+                      {property.mls_id ? (
+                        <>
+                          {' '}
+                          • <span className="font-mono">MLS #{property.mls_id}</span>
+                        </>
+                      ) : null}
                     </div>
                   </div>
-                )}
-                {property.occupancy_pct != null && (
-                  <div>
-                    <div className="text-slate-400">Occupancy</div>
-                    <div className="font-semibold">
-                      {formatPercent(property.occupancy_pct)}
-                    </div>
-                  </div>
-                )}
-                {property.noi_annual != null && (
-                  <div>
-                    <div className="text-slate-400">NOI (annual)</div>
-                    <div className="font-semibold">
-                      {formatCurrency(property.noi_annual)}
-                    </div>
-                  </div>
-                )}
-                {property.cap_rate != null && (
-                  <div>
-                    <div className="text-slate-400">Cap rate</div>
-                    <div className="font-semibold">
-                      {formatCapRate(property.cap_rate)}
-                    </div>
-                  </div>
-                )}
-                {property.parking_spaces != null && (
-                  <div>
-                    <div className="text-slate-400">Parking spaces</div>
-                    <div className="font-semibold">
-                      {property.parking_spaces}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </section>
-          )}
 
-          {/* Contacts section */}
-          <section className="border border-white/10 rounded-xl bg-black/40 p-4 sm:p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-slate-100">
-                Contacts
-              </h2>
-              <Link
-                href="/contacts/new"
-                className="text-xs text-indigo-300 hover:text-indigo-200 hover:underline"
-              >
-                + New contact
-              </Link>
-            </div>
+                  <span className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[11px] text-slate-200 shrink-0">
+                    {property.pipeline_stage}
+                  </span>
+                </div>
 
-            {contactsError && (
-              <p className="text-sm text-red-300 mb-2">
-                Error loading contacts: {contactsError}
-              </p>
-            )}
-
-            {/* Attach existing contact */}
-            <form
-              onSubmit={handleAttachContact}
-              className="flex flex-col sm:flex-row gap-3 mb-4 text-sm"
-            >
-              <div className="flex-1">
-                <label className={labelClass}>Contact</label>
-                <select
-                  value={selectedContactId}
-                  onChange={(e) => setSelectedContactId(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">Select contact…</option>
-                  {allContacts.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                      {c.role ? ` (${c.role})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex-1">
-                <label className={labelClass}>Relationship</label>
-                <input
-                  type="text"
-                  value={relationship}
-                  onChange={(e) => setRelationship(e.target.value)}
-                  className={inputClass}
-                  placeholder="listing agent, owner, lender…"
+                <ListingPhotoCarousel
+                  photoRows={photoRows}
+                  rawPayload={mlsListing?.raw_payload ?? null}
+                  fallbackUrls={[property.primary_photo_url ?? null].filter(Boolean) as string[]}
                 />
-              </div>
+              </Card>
 
-              <div className="sm:self-end">
-                <button
-                  type="submit"
-                  disabled={
-                    addingContact ||
-                    contactsLoading ||
-                    allContacts.length === 0
-                  }
-                  className="w-full sm:w-auto inline-flex items-center rounded-lg bg-[#EBD27A] px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-[#f0dc96] disabled:opacity-60"
-                >
-                  {addingContact ? 'Adding…' : 'Attach'}
-                </button>
-              </div>
-            </form>
+              <Card className="lg:col-span-2 space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {property.property_type ? (
+                    <span className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-slate-200">
+                      {property.property_type}
+                    </span>
+                  ) : null}
+                  {property.mls_url ? (
+                    <a
+                      href={property.mls_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center rounded-full border border-[#EBD27A]/30 bg-[#EBD27A]/10 px-2 py-0.5 text-[11px] text-[#EBD27A]"
+                    >
+                      Open in MLS →
+                    </a>
+                  ) : null}
+                </div>
 
-            {addContactError && (
-              <p className="text-sm text-red-300 mb-2">
-                {addContactError}
-              </p>
-            )}
-
-            {contactsLoading && (
-              <p className="text-sm text-slate-300">
-                Loading contacts…
-              </p>
-            )}
-
-            {!contactsLoading && propertyContacts.length === 0 && (
-              <p className="text-sm text-slate-300">
-                No contacts attached yet. Create a contact or attach an
-                existing one above.
-              </p>
-            )}
-
-            {!contactsLoading && propertyContacts.length > 0 && (
-              <ul className="space-y-2 text-sm">
-                {propertyContacts.map((pc) => (
-                  <li
-                    key={pc.id}
-                    className="rounded-lg border border-white/10 bg-black/40 p-3"
-                  >
-                    <div className="flex justify-between items-center gap-2">
-                      <div>
-                        <div className="font-semibold">
-                          {pc.contact?.name || 'Unknown contact'}
-                        </div>
-                        <div className="text-xs text-slate-400">
-                          {pc.relationship || 'Contact'}
-                          {pc.contact?.role ? ` • ${pc.contact.role}` : ''}
-                        </div>
-                      </div>
-                      <div className="text-xs text-right text-slate-400 space-y-0.5">
-                        {pc.contact?.phone && <div>{pc.contact.phone}</div>}
-                        {pc.contact?.email && <div>{pc.contact.email}</div>}
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          {/* Clients section */}
-          <section className="border border-white/10 rounded-xl bg-black/40 p-4 sm:p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-slate-100">
-                Clients on this deal
-              </h2>
-              <Link
-                href="/clients/new"
-                className="text-xs text-indigo-300 hover:text-indigo-200 hover:underline"
-              >
-                + New client
-              </Link>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <Info label="List price" value={formatCurrency(property.list_price ?? mlsListing?.list_price ?? null)} />
+                  <Info
+                    label="Beds / Baths"
+                    value={
+                      derivedBeds != null || derivedBaths != null
+                        ? `${derivedBeds ?? '—'} bd / ${derivedBaths ?? '—'} ba`
+                        : '—'
+                    }
+                  />
+                  <Info label="Sqft" value={derivedSqft != null ? Number(derivedSqft).toLocaleString() : '—'} />
+                  <Info label="Year" value={derivedYear != null ? String(derivedYear) : '—'} />
+                </div>
+              </Card>
             </div>
 
-            {clientsError && (
-              <p className="text-sm text-red-300 mb-2">
-                Error loading clients: {clientsError}
-              </p>
+            {/* Investment metrics / commercial info */}
+            {(property.apn ||
+              property.zoning ||
+              property.num_units != null ||
+              property.occupancy_pct != null ||
+              property.noi_annual != null ||
+              property.cap_rate != null ||
+              property.parking_spaces != null) && (
+              <Card className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-slate-100">Investment metrics</h2>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 text-slate-400 border border-white/10">
+                    Commercial / industrial
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                  {property.apn && <Info label="APN" value={property.apn} />}
+                  {property.zoning && <Info label="Zoning" value={property.zoning} />}
+                  {property.num_units != null && <Info label="Units" value={String(property.num_units)} />}
+                  {property.occupancy_pct != null && <Info label="Occupancy" value={formatPercent(property.occupancy_pct)} />}
+                  {property.noi_annual != null && <Info label="NOI (annual)" value={formatCurrency(property.noi_annual)} />}
+                  {property.cap_rate != null && <Info label="Cap rate" value={formatCapRate(property.cap_rate)} />}
+                  {property.parking_spaces != null && <Info label="Parking spaces" value={String(property.parking_spaces)} />}
+                </div>
+              </Card>
             )}
 
-            {/* Attach client form */}
-            <form
-              onSubmit={handleAttachClient}
-              className="border border-white/10 rounded-lg bg-black/40 p-3 mb-3 text-sm space-y-2"
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <div>
+            {/* Contacts section */}
+            <Card className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-slate-100">Contacts</h2>
+                <Link href="/contacts/new">
+                  <Button variant="ghost" className="text-xs sm:text-sm">
+                    + New contact
+                  </Button>
+                </Link>
+              </div>
+
+              {contactsError && <p className="text-sm text-red-300">{contactsError}</p>}
+
+              <form onSubmit={handleAttachContact} className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm items-end">
+                <div className="sm:col-span-1">
+                  <label className={labelClass}>Contact</label>
+                  <select value={selectedContactId} onChange={(e) => setSelectedContactId(e.target.value)} className={inputClass}>
+                    <option value="">Select contact…</option>
+                    {allContacts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                        {c.role ? ` (${c.role})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="sm:col-span-1">
+                  <label className={labelClass}>Relationship</label>
+                  <input type="text" value={relationship} onChange={(e) => setRelationship(e.target.value)} className={inputClass} />
+                </div>
+
+                <div className="sm:col-span-1 flex justify-end">
+                  <Button type="submit" disabled={addingContact || contactsLoading || allContacts.length === 0} className="text-xs px-3 py-2">
+                    {addingContact ? 'Adding…' : 'Attach'}
+                  </Button>
+                </div>
+
+                {addContactError && <div className="sm:col-span-3 text-xs text-red-300">{addContactError}</div>}
+              </form>
+
+              {contactsLoading && <p className="text-sm text-slate-300">Loading contacts…</p>}
+
+              {!contactsLoading && propertyContacts.length === 0 && (
+                <p className="text-sm text-slate-300">No contacts attached yet.</p>
+              )}
+
+              {!contactsLoading && propertyContacts.length > 0 && (
+                <div className="space-y-2 text-sm">
+                  {propertyContacts.map((pc) => (
+                    <div key={pc.id} className="rounded-lg border border-white/10 bg-black/40 p-3">
+                      <div className="flex justify-between items-center gap-2">
+                        <div>
+                          <div className="font-semibold">{pc.contact?.name || 'Unknown contact'}</div>
+                          <div className="text-xs text-slate-400">
+                            {pc.relationship || 'Contact'}
+                            {pc.contact?.role ? ` • ${pc.contact.role}` : ''}
+                          </div>
+                        </div>
+                        <div className="text-xs text-right text-slate-400 space-y-0.5">
+                          {pc.contact?.phone && <div>{pc.contact.phone}</div>}
+                          {pc.contact?.email && <div>{pc.contact.email}</div>}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {/* Clients section */}
+            <Card className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-slate-100">Clients on this deal</h2>
+                <Link href="/clients/new">
+                  <Button variant="ghost" className="text-xs sm:text-sm">
+                    + New client
+                  </Button>
+                </Link>
+              </div>
+
+              {clientsError && <p className="text-sm text-red-300">{clientsError}</p>}
+
+              <form onSubmit={handleAttachClient} className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-sm items-end">
+                <div className="sm:col-span-1">
                   <label className={labelClass}>Client</label>
-                  <select
-                    value={selectedClientId}
-                    onChange={(e) => setSelectedClientId(e.target.value)}
-                    className={inputClass.replace('px-3 py-2', 'px-2 py-1')}
-                  >
+                  <select value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)} className={inputClass}>
                     <option value="">Select client…</option>
                     {allClients.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -838,13 +857,9 @@ export default function PropertyDetailPage() {
                   </select>
                 </div>
 
-                <div>
+                <div className="sm:col-span-1">
                   <label className={labelClass}>Relationship</label>
-                  <select
-                    value={clientRelationship}
-                    onChange={(e) => setClientRelationship(e.target.value)}
-                    className={inputClass.replace('px-3 py-2', 'px-2 py-1')}
-                  >
+                  <select value={clientRelationship} onChange={(e) => setClientRelationship(e.target.value)} className={inputClass}>
                     <option value="favorite">favorite</option>
                     <option value="toured">toured</option>
                     <option value="offered">offered</option>
@@ -853,193 +868,133 @@ export default function PropertyDetailPage() {
                   </select>
                 </div>
 
-                <div>
+                <div className="sm:col-span-1">
                   <label className={labelClass}>Interest level</label>
-                  <select
-                    value={clientInterestLevel}
-                    onChange={(e) => setClientInterestLevel(e.target.value)}
-                    className={inputClass.replace('px-3 py-2', 'px-2 py-1')}
-                  >
+                  <select value={clientInterestLevel} onChange={(e) => setClientInterestLevel(e.target.value)} className={inputClass}>
                     <option value="hot">hot</option>
                     <option value="warm">warm</option>
                     <option value="cold">cold</option>
                   </select>
                 </div>
-              </div>
 
-              <div className="flex items-center justify-between mt-1">
-                <label className="flex items-center gap-2 text-xs text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={clientIsFavorite}
-                    onChange={(e) => setClientIsFavorite(e.target.checked)}
-                    className="h-3 w-3 rounded border border-white/30 bg-black/60"
-                  />
-                  Mark as favorite for this client
-                </label>
+                <div className="sm:col-span-1 flex justify-end gap-3 items-center">
+                  <label className="flex items-center gap-2 text-xs text-slate-200">
+                    <input
+                      type="checkbox"
+                      checked={clientIsFavorite}
+                      onChange={(e) => setClientIsFavorite(e.target.checked)}
+                      className="h-3 w-3 rounded border border-white/40 bg-black/60"
+                    />
+                    ★ favorite
+                  </label>
 
-                <button
-                  type="submit"
-                  disabled={
-                    attachingClient ||
-                    clientsLoading ||
-                    allClients.length === 0
-                  }
-                  className="inline-flex items-center rounded-lg bg-[#EBD27A] px-3 py-1.5 text-xs font-semibold text-slate-900 shadow-sm hover:bg-[#f0dc96] disabled:opacity-60"
-                >
-                  {attachingClient ? 'Attaching…' : 'Attach client'}
-                </button>
-              </div>
+                  <Button type="submit" disabled={attachingClient || clientsLoading || allClients.length === 0} className="text-xs px-3 py-2">
+                    {attachingClient ? 'Attaching…' : 'Attach'}
+                  </Button>
+                </div>
 
-              {attachClientError && (
-                <p className="text-xs text-red-300 mt-1">
-                  {attachClientError}
-                </p>
+                {attachClientError && <div className="sm:col-span-4 text-xs text-red-300">{attachClientError}</div>}
+              </form>
+
+              {clientsLoading && <p className="text-sm text-slate-300">Loading property clients…</p>}
+
+              {!clientsLoading && propertyClients.length === 0 && (
+                <p className="text-sm text-slate-300">No clients attached yet.</p>
               )}
-            </form>
 
-            {clientsLoading && (
-              <p className="text-sm text-slate-300">
-                Loading property clients…
-              </p>
-            )}
-
-            {!clientsLoading && propertyClients.length === 0 && (
-              <p className="text-sm text-slate-300">
-                No clients attached yet. Use the form above to connect
-                this property to a buyer or seller.
-              </p>
-            )}
-
-            {!clientsLoading && propertyClients.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="min-w-full border border-white/10 text-xs sm:text-sm">
-                  <thead className="bg-white/5 text-slate-300">
-                    <tr>
-                      <th className="border border-white/10 px-2 py-1 text-left">
-                        Client
-                      </th>
-                      <th className="border border-white/10 px-2 py-1 text-left">
-                        Relationship
-                      </th>
-                      <th className="border border-white/10 px-2 py-1 text-left">
-                        Interest
-                      </th>
-                      <th className="border border-white/10 px-2 py-1 text-left">
-                        Stage
-                      </th>
-                      <th className="border border-white/10 px-2 py-1 text-left">
-                        Budget
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {propertyClients.map((pc) => (
-                      <tr key={pc.id} className="hover:bg-white/5">
-                        <td className="border border-white/10 px-2 py-1">
-                          {pc.client ? (
-                            <Link
-                              href={`/clients/${pc.client.id}`}
-                              className="text-indigo-300 hover:text-indigo-200 hover:underline"
-                            >
-                              {pc.client.name}
-                            </Link>
-                          ) : (
-                            <span className="text-slate-500">
-                              (missing client)
-                            </span>
-                          )}
-                          {pc.client && (
-                            <div className="text-[11px] text-slate-400">
-                              {pc.client.client_type || 'unknown type'}
-                              {pc.is_favorite ? ' • ★ favorite' : ''}
-                            </div>
-                          )}
-                        </td>
-                        <td className="border border-white/10 px-2 py-1">
-                          {pc.relationship || '-'}
-                        </td>
-                        <td className="border border-white/10 px-2 py-1">
-                          {pc.interest_level || '-'}
-                        </td>
-                        <td className="border border-white/10 px-2 py-1">
-                          {pc.client?.stage || '-'}
-                        </td>
-                        <td className="border border-white/10 px-2 py-1">
-                          {pc.client
-                            ? formatBudget(
-                                pc.client.budget_min,
-                                pc.client.budget_max
-                              )
-                            : '-'}
-                        </td>
+              {!clientsLoading && propertyClients.length > 0 && (
+                <div className="overflow-x-auto rounded-lg border border-white/10 bg-black/40">
+                  <table className="min-w-full text-xs sm:text-sm">
+                    <thead className="bg-white/5 text-slate-300">
+                      <tr>
+                        <th className="border-b border-white/10 px-2 py-1 text-left">Client</th>
+                        <th className="border-b border-white/10 px-2 py-1 text-left">Relationship</th>
+                        <th className="border-b border-white/10 px-2 py-1 text-left">Interest</th>
+                        <th className="border-b border-white/10 px-2 py-1 text-left">Stage</th>
+                        <th className="border-b border-white/10 px-2 py-1 text-left">Budget</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-          {/* Notes section */}
-          <section className="border border-white/10 rounded-xl bg-black/40 p-4 sm:p-5">
-            <h2 className="text-sm font-semibold text-slate-100 mb-3">
-              Internal notes
-            </h2>
-
-            <form onSubmit={handleAddNote} className="space-y-2 mb-4">
-              {noteError && (
-                <p className="text-sm text-red-300">{noteError}</p>
+                    </thead>
+                    <tbody>
+                      {propertyClients.map((pc) => (
+                        <tr key={pc.id} className="hover:bg-white/5">
+                          <td className="border-b border-white/5 px-2 py-1">
+                            {pc.client ? (
+                              <Link href={`/clients/${pc.client.id}`} className="text-[#EBD27A] hover:underline">
+                                {pc.client.name}
+                              </Link>
+                            ) : (
+                              <span className="text-slate-500">(missing client)</span>
+                            )}
+                            {pc.client && (
+                              <div className="text-[11px] text-slate-400">
+                                {pc.client.client_type || 'unknown type'}
+                                {pc.is_favorite ? ' • ★ favorite' : ''}
+                              </div>
+                            )}
+                          </td>
+                          <td className="border-b border-white/5 px-2 py-1">{pc.relationship || '—'}</td>
+                          <td className="border-b border-white/5 px-2 py-1">{pc.interest_level || '—'}</td>
+                          <td className="border-b border-white/5 px-2 py-1">{pc.client?.stage || '—'}</td>
+                          <td className="border-b border-white/5 px-2 py-1">
+                            {pc.client ? formatBudget(pc.client.budget_min, pc.client.budget_max) : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
-              <textarea
-                value={newNote}
-                onChange={(e) => setNewNote(e.target.value)}
-                className="w-full rounded-md border border-white/15 bg-black/60 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-                rows={3}
-                placeholder="Call recap, seller info, price guidance, issues, etc."
-              />
-              <button
-                type="submit"
-                disabled={savingNote}
-                className="inline-flex items-center rounded-lg bg-[#EBD27A] px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm hover:bg-[#f0dc96] disabled:opacity-60"
-              >
-                {savingNote ? 'Saving…' : 'Add note'}
-              </button>
-            </form>
+            </Card>
 
-            {notesLoading && (
-              <p className="text-sm text-slate-300">Loading notes…</p>
-            )}
+            {/* Notes section */}
+            <Card className="space-y-3">
+              <h2 className="text-sm font-semibold text-slate-100">Internal notes</h2>
 
-            {!notesLoading && notes.length === 0 && (
-              <p className="text-sm text-slate-300">
-                No notes yet. Add your first note above.
-              </p>
-            )}
+              <form onSubmit={handleAddNote} className="space-y-2">
+                {noteError && <p className="text-sm text-red-300">{noteError}</p>}
+                <textarea
+                  value={newNote}
+                  onChange={(e) => setNewNote(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                  rows={3}
+                  placeholder="Call recap, seller info, price guidance, issues, etc."
+                />
+                <Button type="submit" disabled={savingNote} className="text-sm px-4 py-2">
+                  {savingNote ? 'Saving…' : 'Add note'}
+                </Button>
+              </form>
 
-            {!notesLoading && notes.length > 0 && (
-              <ul className="space-y-3 text-sm">
-                {notes.map((note) => (
-                  <li
-                    key={note.id}
-                    className="rounded-lg border border-white/10 bg-black/40 p-3"
-                  >
-                    <p className="whitespace-pre-wrap mb-1 text-slate-100">
-                      {note.body}
-                    </p>
-                    <div className="text-[11px] text-slate-400 flex justify-between">
-                      <span>{note.author || 'Unknown'}</span>
-                      <span>
-                        {new Date(note.created_at).toLocaleString()}
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </div>
-      )}
+              {notesLoading && <p className="text-sm text-slate-300">Loading notes…</p>}
+
+              {!notesLoading && notes.length === 0 && <p className="text-sm text-slate-300">No notes yet.</p>}
+
+              {!notesLoading && notes.length > 0 && (
+                <ul className="space-y-3 text-sm">
+                  {notes.map((note) => (
+                    <li key={note.id} className="rounded-lg border border-white/10 bg-black/40 p-3">
+                      <p className="whitespace-pre-wrap mb-1 text-slate-100">{note.body}</p>
+                      <div className="text-[11px] text-slate-400 flex justify-between">
+                        <span>{note.author || 'Unknown'}</span>
+                        <span>{new Date(note.created_at).toLocaleString()}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </>
+        )}
+      </div>
     </main>
   );
 }
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-black/40 px-3 py-2">
+      <div className="text-[11px] text-slate-400">{label}</div>
+      <div className="text-sm font-semibold text-slate-100">{value}</div>
+    </div>
+  );
+}
+

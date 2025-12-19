@@ -101,9 +101,6 @@ type PortalMessage = {
   created_at: string | null;
 };
 
-const RELATIONSHIP_OPTIONS = ['favorite', 'toured', 'offered', 'under_contract', 'closed'];
-const INTEREST_OPTIONS = ['hot', 'warm', 'cold'];
-
 export default function ClientDetailPage() {
   const params = useParams();
   const id = params?.id as string;
@@ -112,7 +109,7 @@ export default function ClientDetailPage() {
   const [loadingClient, setLoadingClient] = useState(true);
   const [clientError, setClientError] = useState<string | null>(null);
 
-  const [allProperties, setAllProperties] = useState<Property[]>([]);
+  // Attached properties (READ-ONLY here)
   const [clientProperties, setClientProperties] = useState<ClientProperty[]>([]);
   const [propsLoading, setPropsLoading] = useState(true);
   const [propsError, setPropsError] = useState<string | null>(null);
@@ -138,20 +135,12 @@ export default function ClientDetailPage() {
   const [savingMessage, setSavingMessage] = useState(false);
   const [newMessageError, setNewMessageError] = useState<string | null>(null);
 
-  // Attached properties (manual attach still supported)
-  const [selectedPropertyId, setSelectedPropertyId] = useState('');
-  const [relationship, setRelationship] = useState('favorite');
-  const [interestLevel, setInterestLevel] = useState('hot');
-  const [isFavorite, setIsFavorite] = useState(true);
-  const [addingProperty, setAddingProperty] = useState(false);
-  const [addPropertyError, setAddPropertyError] = useState<string | null>(null);
-
   // Internal notes
   const [newNote, setNewNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);
   const [newNoteError, setNewNoteError] = useState<string | null>(null);
 
-  // Portal access (now inside the client summary card)
+  // Portal access (inside the client summary card)
   const [portalLinks, setPortalLinks] = useState<PortalAccess[]>([]);
   const [portalEmail, setPortalEmail] = useState('');
   const [linkRole, setLinkRole] = useState('primary');
@@ -202,27 +191,6 @@ export default function ClientDetailPage() {
       if (c?.email) setPortalEmail(c.email);
 
       setLoadingClient(false);
-    };
-
-    const loadAllProperties = async () => {
-      setPropsLoading(true);
-      setPropsError(null);
-
-      const { data, error } = await supabase
-        .from('properties')
-        .select('id, address, city, state, list_price, property_type, pipeline_stage, created_at')
-        .order('created_at', { ascending: false })
-        .limit(300);
-
-      if (error) {
-        console.error('Error loading properties:', error);
-        setPropsError(error.message);
-        setAllProperties([]);
-      } else {
-        setAllProperties((data || []) as Property[]);
-      }
-
-      setPropsLoading(false);
     };
 
     const loadClientProperties = async () => {
@@ -447,7 +415,6 @@ export default function ClientDetailPage() {
     };
 
     loadClient();
-    loadAllProperties();
     loadClientProperties();
     loadClientNotes();
     loadClientTours();
@@ -455,91 +422,6 @@ export default function ClientDetailPage() {
     loadClientOffers();
     loadClientMessages();
   }, [id]);
-
-  const reloadClientProps = async (clientId: string) => {
-    const { data, error } = await supabase
-      .from('client_properties')
-      .select(
-        `
-        id,
-        relationship,
-        interest_level,
-        is_favorite,
-        client_feedback,
-        client_rating,
-        properties (
-          id,
-          address,
-          city,
-          state,
-          list_price,
-          property_type,
-          pipeline_stage
-        )
-      `
-      )
-      .eq('client_id', clientId)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error reloading client properties:', error);
-      return;
-    }
-
-    const mapped: ClientProperty[] = (data || []).map((row: any) => ({
-      id: row.id,
-      relationship: row.relationship,
-      interest_level: row.interest_level,
-      is_favorite: row.is_favorite ?? false,
-      client_feedback: row.client_feedback ?? null,
-      client_rating: row.client_rating ?? null,
-      property: row.properties
-        ? {
-            id: row.properties.id,
-            address: row.properties.address,
-            city: row.properties.city,
-            state: row.properties.state,
-            list_price: row.properties.list_price,
-            property_type: row.properties.property_type,
-            pipeline_stage: row.properties.pipeline_stage,
-          }
-        : null,
-    }));
-
-    setClientProperties(mapped);
-  };
-
-  const handleAttachProperty = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!client) return;
-    if (!selectedPropertyId) {
-      setAddPropertyError('Select a property first.');
-      return;
-    }
-
-    setAddingProperty(true);
-    setAddPropertyError(null);
-
-    const { error } = await supabase.from('client_properties').insert([
-      {
-        client_id: client.id,
-        property_id: selectedPropertyId,
-        relationship: relationship.trim() || null,
-        interest_level: interestLevel.trim() || null,
-        is_favorite: isFavorite,
-      },
-    ]);
-
-    if (error) {
-      console.error('Error attaching property:', error);
-      setAddPropertyError(error.message);
-      setAddingProperty(false);
-      return;
-    }
-
-    await reloadClientProps(client.id);
-    setAddingProperty(false);
-  };
 
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -739,10 +621,7 @@ export default function ClientDetailPage() {
     return d.toLocaleString();
   };
 
-  const favoriteCount = useMemo(
-    () => clientProperties.filter((cp) => cp.is_favorite).length,
-    [clientProperties]
-  );
+  const favoriteCount = useMemo(() => clientProperties.filter((cp) => cp.is_favorite).length, [clientProperties]);
 
   const now = useMemo(() => new Date(), []);
   const upcomingTours = useMemo(
@@ -766,14 +645,6 @@ export default function ClientDetailPage() {
       }),
     [tours, now]
   );
-
-  const attachedPropertyIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const cp of clientProperties) {
-      if (cp.property?.id) ids.add(cp.property.id);
-    }
-    return ids;
-  }, [clientProperties]);
 
   return (
     <div className="max-w-5xl space-y-6">
@@ -818,9 +689,7 @@ export default function ClientDetailPage() {
           <Card className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
               <div>
-                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
-                  {client.name}
-                </h1>
+                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">{client.name}</h1>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm mt-3">
                   <div>
@@ -833,16 +702,12 @@ export default function ClientDetailPage() {
                   </div>
                   <div>
                     <div className="text-slate-400 text-xs uppercase tracking-wide">Budget</div>
-                    <div className="font-medium text-slate-50">
-                      {formatBudget(client.budget_min, client.budget_max)}
-                    </div>
+                    <div className="font-medium text-slate-50">{formatBudget(client.budget_min, client.budget_max)}</div>
                   </div>
 
                   {client.preferred_locations && (
                     <div className="sm:col-span-2">
-                      <div className="text-slate-400 text-xs uppercase tracking-wide">
-                        Preferred Locations
-                      </div>
+                      <div className="text-slate-400 text-xs uppercase tracking-wide">Preferred Locations</div>
                       <div className="font-medium text-slate-50">{client.preferred_locations}</div>
                     </div>
                   )}
@@ -852,9 +717,7 @@ export default function ClientDetailPage() {
               <div className="text-sm text-slate-200 space-y-1">
                 {client.phone && <div>📞 {client.phone}</div>}
                 {client.email && <div>✉️ {client.email}</div>}
-                <div className="text-xs text-slate-400 pt-1">
-                  Favorites attached: {favoriteCount}
-                </div>
+                <div className="text-xs text-slate-400 pt-1">Favorites attached: {favoriteCount}</div>
               </div>
             </div>
 
@@ -870,8 +733,7 @@ export default function ClientDetailPage() {
                 <div>
                   <h2 className="text-sm font-semibold text-white">Client portal access</h2>
                   <p className="text-xs text-slate-300 max-w-2xl">
-                    Link this client to their portal account so they can see tours, saved homes,
-                    offers, and messages.
+                    Link this client to their portal account so they can see tours, saved homes, offers, and messages.
                   </p>
                 </div>
 
@@ -888,14 +750,9 @@ export default function ClientDetailPage() {
                 </div>
               </div>
 
-              <form
-                onSubmit={handleLinkPortal}
-                className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end"
-              >
+              <form onSubmit={handleLinkPortal} className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
                 <div className="space-y-1 md:col-span-2">
-                  <label className="block text-xs font-medium text-slate-200">
-                    Client&apos;s portal email
-                  </label>
+                  <label className="block text-xs font-medium text-slate-200">Client&apos;s portal email</label>
                   <input
                     type="email"
                     value={portalEmail}
@@ -964,9 +821,7 @@ export default function ClientDetailPage() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-white">Matching requirements</h2>
-                <p className="text-xs text-slate-300">
-                  Requirements are edited on the Edit Client page.
-                </p>
+                <p className="text-xs text-slate-300">Requirements are edited on the Edit Client page.</p>
               </div>
 
               <Link href={`/clients/${id}/edit`}>
@@ -979,9 +834,7 @@ export default function ClientDetailPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
               <div className="rounded-xl border border-white/10 bg-black/40 p-3">
                 <div className="text-xs text-slate-400 uppercase tracking-wide">Budget</div>
-                <div className="text-slate-100 font-medium">
-                  {formatBudget(client.budget_min, client.budget_max)}
-                </div>
+                <div className="text-slate-100 font-medium">{formatBudget(client.budget_min, client.budget_max)}</div>
               </div>
 
               <div className="rounded-xl border border-white/10 bg-black/40 p-3">
@@ -1012,7 +865,7 @@ export default function ClientDetailPage() {
             </div>
           </Card>
 
-          {/* 3) Attached properties */}
+          {/* 3) Attached properties (READ-ONLY) */}
           <Card className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold text-white">Attached properties</h2>
@@ -1026,83 +879,6 @@ export default function ClientDetailPage() {
             </div>
 
             {propsError && <p className="text-sm text-red-300">Error loading properties: {propsError}</p>}
-
-            {/* Attach property form (kept) */}
-            <form
-              id="attach-property-form"
-              onSubmit={handleAttachProperty}
-              className="border border-white/10 rounded-md p-3 bg-black/40 text-sm space-y-2"
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-slate-200">Property</label>
-                  <select
-                    value={selectedPropertyId}
-                    onChange={(e) => setSelectedPropertyId(e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
-                  >
-                    <option value="">Select property…</option>
-                    {allProperties.map((p) => (
-                      <option key={p.id} value={p.id} disabled={attachedPropertyIds.has(p.id)}>
-                        {p.address} – {p.city}, {p.state}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-slate-200">Relationship</label>
-                  <select
-                    value={relationship}
-                    onChange={(e) => setRelationship(e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
-                  >
-                    {RELATIONSHIP_OPTIONS.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium mb-1 text-slate-200">Interest level</label>
-                  <select
-                    value={interestLevel}
-                    onChange={(e) => setInterestLevel(e.target.value)}
-                    className="w-full rounded-lg border border-white/15 bg-black/60 px-2 py-1.5 text-sm text-slate-100"
-                  >
-                    {INTEREST_OPTIONS.map((i) => (
-                      <option key={i} value={i}>
-                        {i}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between mt-1">
-                <label className="flex items-center gap-2 text-xs text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={isFavorite}
-                    onChange={(e) => setIsFavorite(e.target.checked)}
-                    className="h-3 w-3 rounded border border-white/40 bg-black/60"
-                  />
-                  Mark as favorite
-                </label>
-
-                <Button
-                  type="submit"
-                  disabled={addingProperty || propsLoading || allProperties.length === 0}
-                  className="text-xs px-3 py-1.5"
-                >
-                  {addingProperty ? 'Attaching…' : 'Attach property'}
-                </Button>
-              </div>
-
-              {addPropertyError && <p className="text-xs text-red-300 mt-1">{addPropertyError}</p>}
-            </form>
 
             {propsLoading && <p className="text-sm text-slate-300">Loading client properties…</p>}
 
@@ -1146,8 +922,12 @@ export default function ClientDetailPage() {
                         <td className="border-b border-white/5 px-2 py-1">{cp.property?.pipeline_stage || '-'}</td>
                         <td className="border-b border-white/5 px-2 py-1 text-xs">
                           {cp.client_rating != null && <div className="font-medium">Rating: {cp.client_rating}/5</div>}
-                          {cp.client_feedback && <div className="text-slate-100 whitespace-pre-wrap">{cp.client_feedback}</div>}
-                          {cp.client_rating == null && !cp.client_feedback && <span className="text-slate-500">No feedback yet</span>}
+                          {cp.client_feedback && (
+                            <div className="text-slate-100 whitespace-pre-wrap">{cp.client_feedback}</div>
+                          )}
+                          {cp.client_rating == null && !cp.client_feedback && (
+                            <span className="text-slate-500">No feedback yet</span>
+                          )}
                         </td>
                         <td className="border-b border-white/5 px-2 py-1 text-right">
                           {cp.property ? formatPrice(cp.property.list_price) : '-'}
@@ -1193,9 +973,7 @@ export default function ClientDetailPage() {
                             <Link href={`/tours/${t.id}`} className="font-medium text-[#EBD27A] hover:underline">
                               {t.title || 'Untitled tour'}
                             </Link>
-                            <div className="text-xs text-slate-400">
-                              {formatDateTime(t.start_time)} • {t.status || 'planned'}
-                            </div>
+                            <div className="text-xs text-slate-400">{formatDateTime(t.start_time)} • {t.status || 'planned'}</div>
                           </div>
                         </li>
                       ))}
@@ -1216,9 +994,7 @@ export default function ClientDetailPage() {
                             <Link href={`/tours/${t.id}`} className="font-medium text-[#EBD27A] hover:underline">
                               {t.title || 'Untitled tour'}
                             </Link>
-                            <div className="text-xs text-slate-400">
-                              {formatDateTime(t.start_time)} • {t.status || 'planned'}
-                            </div>
+                            <div className="text-xs text-slate-400">{formatDateTime(t.start_time)} • {t.status || 'planned'}</div>
                           </div>
                         </li>
                       ))}
@@ -1395,9 +1171,7 @@ export default function ClientDetailPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <h3 className="text-sm font-semibold text-slate-50 truncate">
-                            {m.title || 'Update for this journey'}
-                          </h3>
+                          <h3 className="text-sm font-semibold text-slate-50 truncate">{m.title || 'Update for this journey'}</h3>
                           {m.is_pinned && (
                             <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-400/20 px-2 py-0.5 text-[11px] text-amber-100 whitespace-nowrap">
                               Important
@@ -1446,10 +1220,7 @@ export default function ClientDetailPage() {
             {!notesLoading && notes.length > 0 && (
               <ul className="space-y-3 text-sm">
                 {notes.map((note) => (
-                  <li
-                    key={note.id}
-                    className="border border-white/15 rounded-md p-3 bg-black/40 text-slate-100"
-                  >
+                  <li key={note.id} className="border border-white/15 rounded-md p-3 bg-black/40 text-slate-100">
                     <p className="whitespace-pre-wrap mb-1">{note.body}</p>
                     <div className="text-[11px] text-slate-400 flex justify-between">
                       <span>{note.author || 'Unknown'}</span>

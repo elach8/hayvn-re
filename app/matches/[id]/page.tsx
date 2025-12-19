@@ -1,12 +1,13 @@
 // app/matches/[id]/page.tsx
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
+import { ListingPhotoCarousel } from '../../components/ListingPhotoCarousel';
 
 type AgentRow = {
   id: string;
@@ -109,9 +110,7 @@ function buildStreetLineFromRawPayload(raw: any) {
     rp.StreetNumber && rp.StreetName
       ? `${rp.StreetNumber} ${rp.StreetDirPrefix ?? ''} ${rp.StreetName} ${rp.StreetSuffix ?? ''}`
       : null,
-    rp.StreetNumber && rp.StreetName && rp.UnitNumber
-      ? `${rp.StreetNumber} ${rp.StreetName} #${rp.UnitNumber}`
-      : null,
+    rp.StreetNumber && rp.StreetName && rp.UnitNumber ? `${rp.StreetNumber} ${rp.StreetName} #${rp.UnitNumber}` : null,
   ]
     .map(safeStr)
     .filter(Boolean) as string[];
@@ -161,102 +160,6 @@ function toNum(val: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/**
- * FIX: De-dupe “same photo different size” variants and prefer the higher-quality URL.
- * - canonical key strips query string + hash
- * - we sort so "thumb/thumbnail/small/resize/w=..." go last
- */
-function canonicalPhotoKey(url: string) {
-  const s = safeStr(url) ?? '';
-  if (!s) return '';
-  const noHash = s.split('#')[0];
-  const noQuery = noHash.split('?')[0];
-  return noQuery.trim();
-}
-
-function photoQualityRank(url: string) {
-  const s = (safeStr(url) ?? '').toLowerCase();
-  if (!s) return 999;
-
-  // higher score = worse quality
-  let penalty = 0;
-
-  if (s.includes('thumbnail') || s.includes('/thumbnail') || s.includes('thumb')) penalty += 50;
-  if (s.includes('small') || s.includes('tiny')) penalty += 20;
-
-  // common resize params in query strings
-  if (s.includes('width=') || s.includes('w=') || s.includes('height=') || s.includes('h=')) penalty += 15;
-  if (s.includes('resize') || s.includes('resized') || s.includes('fit=')) penalty += 15;
-
-  // sometimes CDNs label large explicitly
-  if (s.includes('large') || s.includes('full')) penalty -= 10;
-
-  return penalty;
-}
-
-function uniqPhotoUrlsPreferLarge(urls: string[]) {
-  const cleaned = urls.map((u) => safeStr(u)).filter(Boolean) as string[];
-  // Prefer higher quality first (lower penalty first)
-  cleaned.sort((a, b) => photoQualityRank(a) - photoQualityRank(b));
-
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const u of cleaned) {
-    const key = canonicalPhotoKey(u);
-    if (!key) continue;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(u);
-  }
-  return out;
-}
-
-function extractPhotoUrlsFromRawPayload(raw: any): string[] {
-  const rp = raw ?? {};
-
-  const buckets: any[] = [];
-
-  if (Array.isArray(rp.PhotoUrls)) buckets.push(rp.PhotoUrls);
-  if (Array.isArray(rp.photoUrls)) buckets.push(rp.photoUrls);
-  if (Array.isArray(rp.Photos)) buckets.push(rp.Photos);
-  if (Array.isArray(rp.photos)) buckets.push(rp.photos);
-  if (Array.isArray(rp.Media)) buckets.push(rp.Media);
-  if (Array.isArray(rp.media)) buckets.push(rp.media);
-
-  const urls: string[] = [];
-
-  for (const b of buckets) {
-    for (const item of b) {
-      if (typeof item === 'string') {
-        urls.push(item);
-        continue;
-      }
-      if (item && typeof item === 'object') {
-        urls.push(
-          item.Url,
-          item.url,
-          item.MediaURL,
-          item.MediaUrl,
-          item.mediaUrl,
-          item.mediaURL,
-          item.Uri,
-          item.uri,
-          item.LargeUrl,
-          item.largeUrl
-        );
-      }
-    }
-  }
-
-  // Primary + thumb fallbacks
-  urls.push(rp.PrimaryPhotoUrl, rp.primaryPhotoUrl, rp.ThumbnailUrl, rp.thumbnailUrl);
-
-  // FIX: use canonical de-dupe
-  return uniqPhotoUrlsPreferLarge(urls.filter(Boolean) as string[]);
-}
-
-const MATCHES_RESTORE_KEY = 'hayvnre:matches:restore';
-
 export default function MatchDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -270,9 +173,7 @@ export default function MatchDetailPage() {
   const [agent, setAgent] = useState<AgentRow | null>(null);
   const [rec, setRec] = useState<RecommendationRow | null>(null);
 
-  const [photos, setPhotos] = useState<PhotoRow[]>([]);
-  const [rawPhotos, setRawPhotos] = useState<string[]>([]);
-  const [activePhotoIdx, setActivePhotoIdx] = useState(0);
+  const [photoRows, setPhotoRows] = useState<PhotoRow[]>([]);
 
   const [actionBusy, setActionBusy] = useState(false);
 
@@ -285,74 +186,6 @@ export default function MatchDetailPage() {
     router.push('/matches');
   };
 
-  // Prefer table photos; only fall back to raw if table is empty
-  // FIX: canonical de-dupe here too (table may also include size variants)
-  const allPhotoUrls = useMemo(() => {
-    const fromTable = photos.map((p) => p.url).filter(Boolean) as string[];
-    if (fromTable.length > 0) return uniqPhotoUrlsPreferLarge(fromTable);
-    return uniqPhotoUrlsPreferLarge(rawPhotos);
-  }, [photos, rawPhotos]);
-
-  const hasPhotos = allPhotoUrls.length > 0;
-  const canPrev = hasPhotos && activePhotoIdx > 0;
-  const canNext = hasPhotos && activePhotoIdx < allPhotoUrls.length - 1;
-
-  const goPrev = () => {
-    if (!canPrev) return;
-    setActivePhotoIdx((i) => Math.max(0, i - 1));
-  };
-
-  const goNext = () => {
-    if (!canNext) return;
-    setActivePhotoIdx((i) => Math.min(allPhotoUrls.length - 1, i + 1));
-  };
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') goPrev();
-      if (e.key === 'ArrowRight') goNext();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canPrev, canNext, allPhotoUrls.length]);
-
-  const touchStartX = useRef<number | null>(null);
-  const touchStartY = useRef<number | null>(null);
-
-  const onTouchStart = (e: React.TouchEvent) => {
-    const t = e.touches[0];
-    if (!t) return;
-    touchStartX.current = t.clientX;
-    touchStartY.current = t.clientY;
-  };
-
-  const onTouchEnd = (e: React.TouchEvent) => {
-    const startX = touchStartX.current;
-    const startY = touchStartY.current;
-    touchStartX.current = null;
-    touchStartY.current = null;
-
-    if (startX == null || startY == null) return;
-
-    const t = e.changedTouches[0];
-    if (!t) return;
-
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
-
-    if (Math.abs(dx) < 40) return;
-    if (Math.abs(dy) > Math.abs(dx) * 0.75) return;
-
-    if (dx > 0) goPrev();
-    else goNext();
-  };
-
-  const primaryPhotoUrl = useMemo(() => {
-    if (!hasPhotos) return null;
-    return allPhotoUrls[activePhotoIdx] ?? null;
-  }, [hasPhotos, allPhotoUrls, activePhotoIdx]);
-
   const derivedBeds = useMemo(() => {
     if (!listing) return null;
     if (listing.beds != null) return listing.beds;
@@ -364,24 +197,14 @@ export default function MatchDetailPage() {
     if (!listing) return null;
     if (listing.baths != null) return listing.baths;
     const rp = listing.raw_payload || {};
-    return (
-      toNum(rp?.BathroomsTotalInteger) ??
-      toNum(rp?.BathroomsTotal) ??
-      toNum(rp?.BathsTotal) ??
-      null
-    );
+    return toNum(rp?.BathroomsTotalInteger) ?? toNum(rp?.BathroomsTotal) ?? toNum(rp?.BathsTotal) ?? null;
   }, [listing]);
 
   const derivedSqft = useMemo(() => {
     if (!listing) return null;
     if (listing.sqft != null) return listing.sqft;
     const rp = listing.raw_payload || {};
-    return (
-      toNum(rp?.LivingArea) ??
-      toNum(rp?.BuildingAreaTotal) ??
-      toNum(rp?.LivingAreaSquareFeet) ??
-      null
-    );
+    return toNum(rp?.LivingArea) ?? toNum(rp?.BuildingAreaTotal) ?? toNum(rp?.LivingAreaSquareFeet) ?? null;
   }, [listing]);
 
   const derivedYear = useMemo(() => {
@@ -486,7 +309,7 @@ export default function MatchDetailPage() {
       // Photos from table
       const listingId = typed?.mls_listings?.id;
       if (listingId) {
-        const { data: photoRows, error: photoErr } = await supabase
+        const { data: rows, error: photoErr } = await supabase
           .from('mls_listing_photos')
           .select('id, listing_id, sort_order, url, caption, created_at')
           .eq('listing_id', listingId)
@@ -495,19 +318,14 @@ export default function MatchDetailPage() {
 
         if (photoErr) {
           console.warn('Photo load error:', photoErr.message);
-          setPhotos([]);
+          setPhotoRows([]);
         } else {
-          setPhotos((photoRows ?? []) as PhotoRow[]);
+          setPhotoRows((rows ?? []) as PhotoRow[]);
         }
       } else {
-        setPhotos([]);
+        setPhotoRows([]);
       }
 
-      // Photos from raw_payload fallback
-      const rp = typed?.mls_listings?.raw_payload;
-      setRawPhotos(extractPhotoUrlsFromRawPayload(rp));
-
-      setActivePhotoIdx(0);
       setLoading(false);
     };
 
@@ -519,10 +337,7 @@ export default function MatchDetailPage() {
     const updates: any = { agent_note: agentNote ?? '' };
     if (nextStatus) updates.status = nextStatus;
 
-    const { error } = await supabase
-      .from('property_recommendations')
-      .update(updates)
-      .eq('id', rec.id);
+    const { error } = await supabase.from('property_recommendations').update(updates).eq('id', rec.id);
 
     if (error) return { ok: false as const, error: error.message };
     return { ok: true as const };
@@ -577,13 +392,10 @@ export default function MatchDetailPage() {
 
     const address = buildStreetAddress(listing);
 
+    // best single photo fallback for properties.primary_photo_url
+    const rp = listing.raw_payload ?? {};
     const bestPhotoUrl =
-      allPhotoUrls?.[0] ??
-      listing?.raw_payload?.PrimaryPhotoUrl ??
-      listing?.raw_payload?.primaryPhotoUrl ??
-      listing?.raw_payload?.ThumbnailUrl ??
-      listing?.raw_payload?.thumbnailUrl ??
-      null;
+      rp?.PrimaryPhotoUrl ?? rp?.primaryPhotoUrl ?? rp?.ThumbnailUrl ?? rp?.thumbnailUrl ?? null;
 
     const { data: propRows, error: propErr } = await supabase
       .from('properties')
@@ -671,12 +483,8 @@ export default function MatchDetailPage() {
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
         <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div className="space-y-1">
-            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
-              Match Detail
-            </h1>
-            <p className="text-sm text-slate-300">
-              Review photos + details, then attach to the client.
-            </p>
+            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">Match Detail</h1>
+            <p className="text-sm text-slate-300">Review photos + details, then attach to the client.</p>
           </div>
 
           <div className="flex gap-2">
@@ -723,14 +531,9 @@ export default function MatchDetailPage() {
                         • <span className="font-mono">MLS #{listing.mls_number}</span>
                       </>
                     ) : null}
-                    {allPhotoUrls.length > 0 ? (
-                      <>
-                        {' '}
-                        • <span className="text-slate-500">
-                          {activePhotoIdx + 1}/{allPhotoUrls.length} photos
-                        </span>
-                      </>
-                    ) : null}
+                    {listing.last_seen_at && fmtDate(listing.last_seen_at)
+                      ? ` • Last seen: ${fmtDate(listing.last_seen_at)}`
+                      : null}
                   </div>
                 </div>
 
@@ -739,96 +542,9 @@ export default function MatchDetailPage() {
                 </span>
               </div>
 
-              <div
-                className="rounded-2xl border border-white/10 bg-black/40 overflow-hidden relative"
-                onTouchStart={onTouchStart}
-                onTouchEnd={onTouchEnd}
-              >
-                {primaryPhotoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={primaryPhotoUrl}
-                    alt="Property photo"
-                    className="w-full h-[280px] sm:h-[420px] object-cover select-none"
-                    draggable={false}
-                  />
-                ) : (
-                  <div className="w-full h-[280px] sm:h-[420px] flex items-center justify-center text-sm text-slate-400">
-                    No photo available yet.
-                  </div>
-                )}
-
-                {allPhotoUrls.length > 1 && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={goPrev}
-                      disabled={!canPrev}
-                      className={[
-                        'absolute left-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs',
-                        'backdrop-blur bg-black/40',
-                        canPrev
-                          ? 'border-white/20 text-slate-100 hover:bg-black/55'
-                          : 'border-white/10 text-slate-500 opacity-60 cursor-not-allowed',
-                      ].join(' ')}
-                      aria-label="Previous photo"
-                      title="Previous (←)"
-                    >
-                      ←
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={goNext}
-                      disabled={!canNext}
-                      className={[
-                        'absolute right-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs',
-                        'backdrop-blur bg-black/40',
-                        canNext
-                          ? 'border-white/20 text-slate-100 hover:bg-black/55'
-                          : 'border-white/10 text-slate-500 opacity-60 cursor-not-allowed',
-                      ].join(' ')}
-                      aria-label="Next photo"
-                      title="Next (→)"
-                    >
-                      →
-                    </button>
-                  </>
-                )}
-              </div>
-
-              {allPhotoUrls.length > 1 && (
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {allPhotoUrls.slice(0, 60).map((url, idx) => {
-                    const active = idx === activePhotoIdx;
-                    return (
-                      <button
-                        key={`${url}-${idx}`}
-                        type="button"
-                        onClick={() => setActivePhotoIdx(idx)}
-                        className={[
-                          'shrink-0 rounded-xl overflow-hidden border transition',
-                          active
-                            ? 'border-[#EBD27A]/60 bg-[#EBD27A]/10'
-                            : 'border-white/10 bg-black/40 hover:border-white/25',
-                        ].join(' ')}
-                        aria-label={`View photo ${idx + 1}`}
-                        title={`Photo ${idx + 1}`}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt={`Photo ${idx + 1}`} className="h-16 w-24 object-cover" draggable={false} />
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
+              <ListingPhotoCarousel photoRows={photoRows} rawPayload={listing.raw_payload} />
               <div className="text-[11px] text-slate-500">
                 {fmtDate(rec.created_at) ? `Generated: ${fmtDate(rec.created_at)}` : null}
-                {listing.last_seen_at && fmtDate(listing.last_seen_at)
-                  ? ` • Last seen: ${fmtDate(listing.last_seen_at)}`
-                  : null}
-                {allPhotoUrls.length > 1 ? ' • Tip: swipe or use ← → keys' : null}
               </div>
             </Card>
 
@@ -845,11 +561,7 @@ export default function MatchDetailPage() {
                       : 'border-white/15 bg-white/5 text-slate-200',
                   ].join(' ')}
                 >
-                  {rec.status === 'attached'
-                    ? 'Attached'
-                    : rec.status === 'dismissed'
-                    ? 'Dismissed'
-                    : 'New'}
+                  {rec.status === 'attached' ? 'Attached' : rec.status === 'dismissed' ? 'Dismissed' : 'New'}
                 </span>
 
                 {listing.property_type ? (
@@ -869,11 +581,7 @@ export default function MatchDetailPage() {
                 <Info label="Price" value={formatCurrency(listing.list_price)} />
                 <Info
                   label="Beds / Baths"
-                  value={
-                    derivedBeds != null || derivedBaths != null
-                      ? `${derivedBeds ?? '—'} bd / ${derivedBaths ?? '—'} ba`
-                      : '—'
-                  }
+                  value={derivedBeds != null || derivedBaths != null ? `${derivedBeds ?? '—'} bd / ${derivedBaths ?? '—'} ba` : '—'}
                 />
                 <Info label="Sqft" value={derivedSqft != null ? Number(derivedSqft).toLocaleString() : '—'} />
                 <Info label="Year" value={derivedYear != null ? String(derivedYear) : '—'} />
@@ -908,9 +616,7 @@ export default function MatchDetailPage() {
                   placeholder="Example: Great layout + within budget. Close to preferred area. Worth a tour."
                   className="w-full min-h-[110px] rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
                 />
-                {noteDirty ? (
-                  <div className="text-[11px] text-slate-500">Note will be saved when you Attach or Dismiss.</div>
-                ) : null}
+                {noteDirty ? <div className="text-[11px] text-slate-500">Note will be saved when you Attach or Dismiss.</div> : null}
               </div>
 
               <div className="pt-2 space-y-2">
@@ -932,9 +638,7 @@ export default function MatchDetailPage() {
 
         {!authError && !loading && rec && !listing && (
           <Card>
-            <p className="text-sm text-slate-300">
-              Listing details are missing for this match. Try refreshing recommendations.
-            </p>
+            <p className="text-sm text-slate-300">Listing details are missing for this match. Try refreshing recommendations.</p>
           </Card>
         )}
       </div>
