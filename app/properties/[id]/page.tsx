@@ -8,6 +8,8 @@ import { supabase } from '@/lib/supabaseClient';
 import { Card } from '../../components/Card';
 import { Button } from '../../components/Button';
 import { ListingPhotoCarousel } from '../../components/ListingPhotoCarousel';
+import { useRouter } from 'next/navigation';
+
 
 type Property = {
   id: string;
@@ -110,6 +112,8 @@ function toNum(val: any): number | null {
 export default function PropertyDetailPage() {
   const params = useParams();
   const id = params?.id as string;
+  const router = useRouter();
+
 
   const [property, setProperty] = useState<Property | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -636,11 +640,14 @@ export default function PropertyDetailPage() {
     <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
         <header className="flex items-center justify-between gap-3">
-          <Link href="/properties">
-            <Button variant="ghost" className="text-xs sm:text-sm px-3 py-1.5">
-              ← Back to Properties
-            </Button>
-          </Link>
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="text-xs sm:text-sm text-slate-300 hover:text-slate-50 hover:underline"
+          >
+            ← Back
+          </button>
+
 
           <span className="inline-flex items-center rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-wide text-slate-200">
             Property Detail
