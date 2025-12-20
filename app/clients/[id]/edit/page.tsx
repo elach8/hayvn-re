@@ -19,6 +19,10 @@ type Client = {
   budget_max: number | null;
   preferred_locations: string | null;
   notes: string | null;
+
+  // ✅ requirements fields
+  min_beds: number | null;
+  min_baths: number | null;
 };
 
 type CriteriaChangeRow = {
@@ -61,7 +65,10 @@ function parseLocations(raw: string | null) {
 }
 
 function toCommaList(tokens: string[]) {
-  return tokens.map((t) => normalizeToken(t)).filter(Boolean).join(', ');
+  return tokens
+    .map((t) => normalizeToken(t))
+    .filter(Boolean)
+    .join(', ');
 }
 
 export default function EditClientPage() {
@@ -92,6 +99,11 @@ export default function EditClientPage() {
   const [phone, setPhone] = useState('');
   const [budgetMin, setBudgetMin] = useState('');
   const [budgetMax, setBudgetMax] = useState('');
+
+  // ✅ NEW: beds/baths
+  const [minBeds, setMinBeds] = useState('');
+  const [minBaths, setMinBaths] = useState('');
+
   const [notes, setNotes] = useState('');
 
   // Locations (checkboxes + custom)
@@ -103,6 +115,15 @@ export default function EditClientPage() {
     if (!cleaned) return null;
     const n = Number(cleaned);
     return Number.isNaN(n) ? null : n;
+  };
+
+  // ✅ NEW: integer-ish input for beds/baths
+  const toIntOrNull = (raw: string) => {
+    const cleaned = raw.trim();
+    if (!cleaned) return null;
+    const n = Number(cleaned);
+    if (!Number.isFinite(n)) return null;
+    return Math.max(0, Math.floor(n));
   };
 
   const selectedSet = useMemo(() => {
@@ -158,7 +179,7 @@ export default function EditClientPage() {
       const { data, error } = await supabase
         .from('clients')
         .select(
-          'id,name,email,phone,client_type,stage,budget_min,budget_max,preferred_locations,notes',
+          'id,name,email,phone,client_type,stage,budget_min,budget_max,preferred_locations,notes,min_beds,min_baths'
         )
         .eq('id', id)
         .maybeSingle();
@@ -188,6 +209,10 @@ export default function EditClientPage() {
       setNotes(c.notes ?? '');
       setLocationTokens(parseLocations(c.preferred_locations));
 
+      // ✅ NEW: hydrate beds/baths
+      setMinBeds(c.min_beds != null ? String(c.min_beds) : '');
+      setMinBaths(c.min_baths != null ? String(c.min_baths) : '');
+
       // Load change request (if any)
       if (changeId) {
         try {
@@ -203,19 +228,24 @@ export default function EditClientPage() {
           if (!row) {
             setChangeError('Change request not found.');
           } else if (row.client_id !== id) {
-            setChangeError('This change request does not match the current client.');
+            setChangeError(
+              'This change request does not match the current client.'
+            );
           } else {
             setChangeRow(row);
 
-            // Prefill from requested changes (only fields this page currently edits)
+            // Prefill from requested changes
             const ch = row.changes || {};
             const toVal = (key: string) => (ch as any)?.[key]?.to;
 
             if (toVal('name') != null) setName(String(toVal('name') ?? ''));
-            if (toVal('client_type') != null) setClientType(String(toVal('client_type')) as any);
+            if (toVal('client_type') != null)
+              setClientType(String(toVal('client_type')) as any);
             if (toVal('stage') != null) setStage(String(toVal('stage')) as any);
-            if (toVal('email') != null) setEmail(String(toVal('email') ?? ''));
-            if (toVal('phone') != null) setPhone(String(toVal('phone') ?? ''));
+            if (toVal('email') != null)
+              setEmail(String(toVal('email') ?? ''));
+            if (toVal('phone') != null)
+              setPhone(String(toVal('phone') ?? ''));
             if (toVal('budget_min') !== undefined) {
               const v = toVal('budget_min');
               setBudgetMin(v == null ? '' : String(v));
@@ -224,6 +254,17 @@ export default function EditClientPage() {
               const v = toVal('budget_max');
               setBudgetMax(v == null ? '' : String(v));
             }
+
+            // ✅ NEW: prefill min beds/baths from change request
+            if (toVal('min_beds') !== undefined) {
+              const v = toVal('min_beds');
+              setMinBeds(v == null ? '' : String(v));
+            }
+            if (toVal('min_baths') !== undefined) {
+              const v = toVal('min_baths');
+              setMinBaths(v == null ? '' : String(v));
+            }
+
             if (toVal('notes') !== undefined) {
               const v = toVal('notes');
               setNotes(v == null ? '' : String(v));
@@ -235,7 +276,9 @@ export default function EditClientPage() {
           }
         } catch (e: any) {
           console.error('Error loading criteria change request:', e);
-          setChangeError(e?.message || 'Could not load criteria change request.');
+          setChangeError(
+            e?.message || 'Could not load criteria change request.'
+          );
         }
       } else {
         setChangeRow(null);
@@ -265,6 +308,9 @@ export default function EditClientPage() {
       return;
     }
 
+    const beds = toIntOrNull(minBeds);
+    const baths = toIntOrNull(minBaths);
+
     setSaving(true);
 
     const payload = {
@@ -275,7 +321,11 @@ export default function EditClientPage() {
       phone: phone.trim() || null,
       budget_min: min,
       budget_max: max,
-      preferred_locations: locationTokens.length ? toCommaList(locationTokens) : null,
+      min_beds: beds,
+      min_baths: baths,
+      preferred_locations: locationTokens.length
+        ? toCommaList(locationTokens)
+        : null,
       notes: notes.trim() || null,
       updated_at: new Date().toISOString(),
     };
@@ -348,7 +398,8 @@ export default function EditClientPage() {
             Edit Client Requirements
           </h1>
           <p className="text-sm text-slate-300">
-            Keep this clean + structured so matching stays strong even with messy agent input.
+            Keep this clean + structured so matching stays strong even with messy
+            agent input.
           </p>
         </div>
         <div className="flex gap-2">
@@ -374,18 +425,26 @@ export default function EditClientPage() {
                 Client requested criteria updates
               </p>
               <p className="text-xs text-slate-300">
-                Review the pre-filled changes below. Click <span className="font-semibold">Save changes</span> to apply,
-                or reject the request.
+                Review the pre-filled changes below. Click{' '}
+                <span className="font-semibold">Save changes</span> to apply, or
+                reject the request.
               </p>
               {changedFields.length > 0 && (
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Changed fields: <span className="text-slate-200">{changedFields.join(', ')}</span>
+                  Changed fields:{' '}
+                  <span className="text-slate-200">
+                    {changedFields.join(', ')}
+                  </span>
                 </p>
               )}
               {rejectedFlash && (
-                <p className="text-sm text-emerald-300 mt-2">Request rejected.</p>
+                <p className="text-sm text-emerald-300 mt-2">
+                  Request rejected.
+                </p>
               )}
-              {changeError && <p className="text-sm text-red-300 mt-2">{changeError}</p>}
+              {changeError && (
+                <p className="text-sm text-red-300 mt-2">{changeError}</p>
+              )}
             </div>
 
             <div className="flex gap-2">
@@ -419,7 +478,9 @@ export default function EditClientPage() {
         <Card className="space-y-4">
           <form onSubmit={onSave} className="space-y-4">
             {saveError && <p className="text-sm text-red-300">{saveError}</p>}
-            {savedFlash && <p className="text-sm text-emerald-300">Saved.</p>}
+            {savedFlash && (
+              <p className="text-sm text-emerald-300">Saved.</p>
+            )}
 
             {/* Name */}
             <div>
@@ -523,6 +584,34 @@ export default function EditClientPage() {
               </div>
             </div>
 
+            {/* ✅ NEW: Min beds / baths */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium mb-1 text-slate-100">
+                  Min Beds
+                </label>
+                <input
+                  value={minBeds}
+                  onChange={(e) => setMinBeds(e.target.value)}
+                  inputMode="numeric"
+                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                  placeholder="e.g., 3"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-slate-100">
+                  Min Baths
+                </label>
+                <input
+                  value={minBaths}
+                  onChange={(e) => setMinBaths(e.target.value)}
+                  inputMode="numeric"
+                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                  placeholder="e.g., 2"
+                />
+              </div>
+            </div>
+
             {/* Locations */}
             <div className="space-y-2">
               <div className="flex items-end justify-between gap-2">
@@ -531,7 +620,8 @@ export default function EditClientPage() {
                     Preferred Locations
                   </label>
                   <p className="text-xs text-slate-400">
-                    Use checkboxes for speed + add custom cities (stored as a comma list).
+                    Use checkboxes for speed + add custom cities (stored as a
+                    comma list).
                   </p>
                 </div>
               </div>
@@ -621,7 +711,11 @@ export default function EditClientPage() {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between pt-2">
-              <Button type="submit" disabled={saving} className="w-full sm:w-auto">
+              <Button
+                type="submit"
+                disabled={saving}
+                className="w-full sm:w-auto"
+              >
                 {saving ? 'Saving…' : 'Save changes'}
               </Button>
 
