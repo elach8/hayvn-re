@@ -212,7 +212,7 @@ export default function PortalDashboardPage() {
           .eq('email', email)
           .order('created_at', { ascending: true })
           .limit(1)
-          // @ts-expect-error supabase-js supports maybeSingle in v2; keep drop-in resilient
+         
           .maybeSingle?.();
 
         // If maybeSingle doesn't exist in your version, fallback safely:
