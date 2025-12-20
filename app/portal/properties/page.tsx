@@ -31,11 +31,14 @@ type Property = {
 type ClientProperty = {
   id: string;
   client_id: string;
+  created_at: string | null;
+
   relationship: string | null;
   interest_level: string | null;
   is_favorite: boolean;
   client_feedback: string | null;
   client_rating: number | null;
+
   property: Property | null;
   client: ClientInfo | null;
 };
@@ -70,14 +73,7 @@ export default function PortalPropertiesPage() {
         error: sessionError,
       } = await supabase.auth.getSession();
 
-      if (sessionError) {
-        console.error('Portal properties auth error:', sessionError);
-        setAuthError('You need to be signed in to view your properties.');
-        setLoading(false);
-        return;
-      }
-
-      if (!session) {
+      if (sessionError || !session) {
         setAuthError('You need to be signed in to view your properties.');
         setLoading(false);
         return;
@@ -132,9 +128,7 @@ export default function PortalPropertiesPage() {
 
       const clientIds = clients.map((c) => c.id);
       const clientById = new Map<string, ClientInfo>();
-      for (const c of clients) {
-        clientById.set(c.id, c);
-      }
+      for (const c of clients) clientById.set(c.id, c);
 
       // 3) Load client_properties joined to properties
       const { data: cpRows, error: cpError } = await supabase
@@ -143,6 +137,7 @@ export default function PortalPropertiesPage() {
           `
           id,
           client_id,
+          created_at,
           relationship,
           interest_level,
           is_favorite,
@@ -187,6 +182,7 @@ export default function PortalPropertiesPage() {
         return {
           id: row.id as string,
           client_id: cid,
+          created_at: (row.created_at as string | null) ?? null,
           relationship: (row.relationship as string | null) ?? null,
           interest_level: (row.interest_level as string | null) ?? null,
           is_favorite: !!row.is_favorite,
@@ -224,17 +220,45 @@ export default function PortalPropertiesPage() {
   const formatPrice = (v: number | null) =>
     v == null ? '-' : `$${v.toLocaleString()}`;
 
+  const isReviewed = (cp: ClientProperty) => {
+    const fb = (feedbackById[cp.id] ?? cp.client_feedback ?? '').trim();
+    const r = ratingById[cp.id] ?? cp.client_rating ?? '';
+    return fb.length > 0 || r !== '' && r != null;
+  };
+
+  // Review-queue ordering: unreviewed first, then favorites, then newest
+  const ordered = useMemo(() => {
+    const arr = [...clientProperties];
+    arr.sort((a, b) => {
+      const aReviewed = isReviewed(a);
+      const bReviewed = isReviewed(b);
+      if (aReviewed !== bReviewed) return aReviewed ? 1 : -1;
+
+      const aFav = !!favoriteById[a.id];
+      const bFav = !!favoriteById[b.id];
+      if (aFav !== bFav) return aFav ? -1 : 1;
+
+      const ad = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bd = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return bd - ad;
+    });
+    return arr;
+  }, [clientProperties, feedbackById, ratingById, favoriteById]);
+
   const groupedByClient = useMemo(() => {
-    const map = new Map<string, { client: ClientInfo | null; items: ClientProperty[] }>();
-    for (const cp of clientProperties) {
+    const map = new Map<
+      string,
+      { client: ClientInfo | null; items: ClientProperty[] }
+    >();
+
+    for (const cp of ordered) {
       const key = cp.client_id;
-      if (!map.has(key)) {
-        map.set(key, { client: cp.client || null, items: [] });
-      }
+      if (!map.has(key)) map.set(key, { client: cp.client || null, items: [] });
       map.get(key)!.items.push(cp);
     }
+
     return Array.from(map.values());
-  }, [clientProperties]);
+  }, [ordered]);
 
   const handleSave = async (cp: ClientProperty) => {
     setSaveError(null);
@@ -269,7 +293,7 @@ export default function PortalPropertiesPage() {
       return;
     }
 
-    // Sync local objects
+    // Sync canonical list
     setClientProperties((prev) =>
       prev.map((item) =>
         item.id === cp.id
@@ -294,11 +318,10 @@ export default function PortalPropertiesPage() {
         <header className="flex items-center justify-between gap-2">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-50">
-              Your saved homes
+              Review queue
             </h1>
             <p className="text-sm text-slate-300 max-w-xl">
-              Review homes your agent has shared and tell them what you think
-              of each one.
+              Homes your agent shared with you. Unreviewed homes show first.
             </p>
           </div>
           <Link
@@ -319,102 +342,103 @@ export default function PortalPropertiesPage() {
           </p>
         )}
 
-        {authError && (
-          <p className="text-sm text-red-300">{authError}</p>
-        )}
-
-        {!authError && loadError && (
-          <p className="text-sm text-red-300">{loadError}</p>
-        )}
-
-        {saveError && (
-          <p className="text-sm text-red-300">{saveError}</p>
-        )}
-
-        {saveSuccess && (
-          <p className="text-sm text-emerald-300">{saveSuccess}</p>
-        )}
+        {authError && <p className="text-sm text-red-300">{authError}</p>}
+        {!authError && loadError && <p className="text-sm text-red-300">{loadError}</p>}
+        {saveError && <p className="text-sm text-red-300">{saveError}</p>}
+        {saveSuccess && <p className="text-sm text-emerald-300">{saveSuccess}</p>}
 
         {!authError && loading && (
           <p className="text-sm text-slate-300">Loading your homes…</p>
         )}
 
-        {!loading &&
-          !authError &&
-          !loadError &&
-          clientProperties.length === 0 && (
-            <div className="mt-3 rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
-              <p className="text-sm text-slate-300">
-                You don&apos;t have any homes attached to your journeys yet.
-                When your agent links homes to your profile, they&apos;ll show
-                up here.
-              </p>
-            </div>
-          )}
+        {!loading && !authError && !loadError && clientProperties.length === 0 && (
+          <div className="mt-3 rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
+            <p className="text-sm text-slate-300">
+              You don&apos;t have any homes yet. When your agent links homes to your
+              profile, they&apos;ll show up here.
+            </p>
+          </div>
+        )}
 
-        {!loading &&
-          !authError &&
-          !loadError &&
-          clientProperties.length > 0 && (
-            <div className="space-y-6 mt-3">
-              {groupedByClient.map(({ client, items }) => (
-                <section
-                  key={client?.id || 'unknown'}
-                  className="rounded-2xl border border-white/10 bg-black/40 p-4"
-                >
-                  <header className="mb-3 flex items-center justify-between gap-2">
-                    <div>
-                      <h2 className="text-base font-semibold text-slate-50">
-                        {client?.name || 'Home journey'}
-                      </h2>
-                      <p className="text-xs text-slate-400">
-                        {client?.client_type === 'buyer'
-                          ? 'Buying journey'
-                          : client?.client_type === 'seller'
-                          ? 'Selling journey'
-                          : 'Journey'}
-                        {client?.stage ? ` • ${client.stage}` : ''}
-                      </p>
-                    </div>
-                  </header>
+        {!loading && !authError && !loadError && clientProperties.length > 0 && (
+          <div className="space-y-6 mt-3">
+            {groupedByClient.map(({ client, items }) => (
+              <section
+                key={client?.id || 'unknown'}
+                className="rounded-2xl border border-white/10 bg-black/40 p-4"
+              >
+                <header className="mb-3 flex items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-base font-semibold text-slate-50">
+                      {client?.name || 'Home journey'}
+                    </h2>
+                    <p className="text-xs text-slate-400">
+                      {client?.client_type === 'buyer'
+                        ? 'Buying journey'
+                        : client?.client_type === 'seller'
+                        ? 'Selling journey'
+                        : 'Journey'}
+                      {client?.stage ? ` • ${client.stage}` : ''}
+                    </p>
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    {items.filter((x) => !isReviewed(x)).length} unreviewed
+                  </div>
+                </header>
 
-                  <ul className="space-y-3 text-sm">
-                    {items.map((cp) => {
-                      const p = cp.property;
-                      return (
-                        <li
-                          key={cp.id}
-                          className="rounded-xl border border-white/10 bg-white/5 p-3 flex flex-col gap-3"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <div className="font-semibold text-slate-50">
-                                {p ? p.address : 'Home (no longer available)'}
-                              </div>
-                              {p && (
-                                <div className="text-xs text-slate-400">
-                                  {p.city || ''}
-                                  {p.state ? `, ${p.state}` : ''}
-                                  {p.pipeline_stage
-                                    ? ` • ${p.pipeline_stage}`
-                                    : ''}
-                                </div>
-                              )}
-                              {cp.relationship && (
-                                <div className="text-[11px] text-slate-400 mt-0.5">
-                                  Relationship: {cp.relationship}
-                                  {cp.interest_level
-                                    ? ` • ${cp.interest_level}`
-                                    : ''}
-                                </div>
+                <ul className="space-y-3 text-sm">
+                  {items.map((cp) => {
+                    const p = cp.property;
+                    const reviewed = isReviewed(cp);
+
+                    return (
+                      <li
+                        key={cp.id}
+                        className={[
+                          'rounded-xl border bg-white/5 p-3 flex flex-col gap-3',
+                          reviewed ? 'border-white/10' : 'border-[#EBD27A]/30',
+                        ].join(' ')}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-50 truncate">
+                              {p ? (
+                                <Link
+                                  href={`/portal/properties/${cp.id}`}
+                                  className="text-[#EBD27A] hover:underline"
+                                >
+                                  {p.address}
+                                </Link>
+                              ) : (
+                                'Home (no longer available)'
                               )}
                             </div>
-                            <div className="text-right text-xs">
-                              {p && (
-                                <div className="text-slate-50 font-medium">
-                                  {formatPrice(p.list_price)}
-                                </div>
-                              )}
+
+                            {p && (
+                              <div className="text-xs text-slate-400">
+                                {p.city || ''}
+                                {p.state ? `, ${p.state}` : ''}
+                                {p.pipeline_stage ? ` • ${p.pipeline_stage}` : ''}
+                                {p.property_type ? ` • ${p.property_type}` : ''}
+                              </div>
+                            )}
+
+                            {(cp.relationship || cp.interest_level) && (
+                              <div className="text-[11px] text-slate-400 mt-0.5">
+                                Relationship: {cp.relationship || '—'}
+                                {cp.interest_level ? ` • ${cp.interest_level}` : ''}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="text-right text-xs shrink-0">
+                            {p && (
+                              <div className="text-slate-50 font-medium">
+                                {formatPrice(p.list_price)}
+                              </div>
+                            )}
+
+                            <div className="flex items-center justify-end gap-2 mt-1">
                               <button
                                 type="button"
                                 onClick={() =>
@@ -424,87 +448,96 @@ export default function PortalPropertiesPage() {
                                   }))
                                 }
                                 className={[
-                                  'mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px]',
+                                  'inline-flex items-center rounded-full border px-2 py-0.5 text-[11px]',
                                   favoriteById[cp.id]
                                     ? 'border-[#EBD27A] bg-[#EBD27A]/10 text-[#EBD27A]'
                                     : 'border-white/15 bg-black/40 text-slate-200 hover:bg-white/10',
                                 ].join(' ')}
                               >
-                                {favoriteById[cp.id]
-                                  ? '★ Favorite'
-                                  : '☆ Mark favorite'}
+                                {favoriteById[cp.id] ? '★ Favorite' : '☆ Favorite'}
                               </button>
+
+                              <Link
+                                href={`/portal/properties/${cp.id}`}
+                                className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline"
+                              >
+                                Open →
+                              </Link>
                             </div>
                           </div>
+                        </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,3fr)_minmax(0,1.3fr)] gap-3 items-end">
+                        <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,3fr)_minmax(0,1.3fr)] gap-3 items-end">
+                          <div>
+                            <label className="block text-xs font-medium mb-1 text-slate-200">
+                              What did you think of this home?
+                            </label>
+                            <textarea
+                              value={feedbackById[cp.id] ?? ''}
+                              onChange={(e) =>
+                                setFeedbackById((prev) => ({
+                                  ...prev,
+                                  [cp.id]: e.target.value,
+                                }))
+                              }
+                              rows={3}
+                              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                              placeholder="Layout, light, neighborhood, pros/cons…"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
                             <div>
                               <label className="block text-xs font-medium mb-1 text-slate-200">
-                                What did you think of this home?
+                                Rating
                               </label>
-                              <textarea
-                                value={feedbackById[cp.id] ?? ''}
+                              <select
+                                value={ratingById[cp.id] ?? ''}
                                 onChange={(e) =>
-                                  setFeedbackById((prev) => ({
+                                  setRatingById((prev) => ({
                                     ...prev,
-                                    [cp.id]: e.target.value,
+                                    [cp.id]:
+                                      e.target.value === ''
+                                        ? ''
+                                        : Number(e.target.value),
                                   }))
                                 }
-                                rows={3}
-                                className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                                placeholder="Layout, light, neighborhood, pros/cons… anything that helps your agent understand your taste."
-                              />
-                            </div>
-
-                            <div className="space-y-2">
-                              <div>
-                                <label className="block text-xs font-medium mb-1 text-slate-200">
-                                  Rating
-                                </label>
-                                <select
-                                  value={ratingById[cp.id] ?? ''}
-                                  onChange={(e) =>
-                                    setRatingById((prev) => ({
-                                      ...prev,
-                                      [cp.id]:
-                                        e.target.value === ''
-                                          ? ''
-                                          : Number(e.target.value),
-                                    }))
-                                  }
-                                  className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                                >
-                                  <option value="">No rating yet</option>
-                                  <option value={5}>5 – Love it</option>
-                                  <option value={4}>4 – Really like it</option>
-                                  <option value={3}>3 – It&apos;s okay</option>
-                                  <option value={2}>2 – Not a fit</option>
-                                  <option value={1}>1 – Absolutely not</option>
-                                </select>
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={() => handleSave(cp)}
-                                disabled={savingId === cp.id}
-                                className="w-full inline-flex items-center justify-center px-3 py-2 rounded-lg bg-[#EBD27A] text-black text-xs font-medium hover:bg-[#f3e497] disabled:opacity-60"
+                                className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
                               >
-                                {savingId === cp.id
-                                  ? 'Saving…'
-                                  : 'Save feedback'}
-                              </button>
+                                <option value="">No rating yet</option>
+                                <option value={5}>5 – Love it</option>
+                                <option value={4}>4 – Really like it</option>
+                                <option value={3}>3 – It&apos;s okay</option>
+                                <option value={2}>2 – Not a fit</option>
+                                <option value={1}>1 – Absolutely not</option>
+                              </select>
                             </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleSave(cp)}
+                              disabled={savingId === cp.id}
+                              className="w-full inline-flex items-center justify-center px-3 py-2 rounded-lg bg-[#EBD27A] text-black text-xs font-medium hover:bg-[#f3e497] disabled:opacity-60"
+                            >
+                              {savingId === cp.id ? 'Saving…' : 'Save feedback'}
+                            </button>
+
+                            {!reviewed && (
+                              <div className="text-[11px] text-[#EBD27A]">
+                                Unreviewed
+                              </div>
+                            )}
                           </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </section>
-              ))}
-            </div>
-          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            ))}
+          </div>
+        )}
       </div>
     </main>
   );
 }
-

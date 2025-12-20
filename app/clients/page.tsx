@@ -19,6 +19,11 @@ type Client = {
   preferred_locations: string | null;
 };
 
+type PendingMeta = {
+  pendingCount: number;
+  latestId: string | null;
+};
+
 const STAGES = ['lead', 'active', 'under_contract', 'past', 'lost'] as const;
 type StageFilter = (typeof STAGES)[number] | 'all';
 
@@ -26,8 +31,7 @@ const TYPES = ['buyer', 'seller', 'both'] as const;
 
 function formatBudget(min: number | null, max: number | null) {
   if (min == null && max == null) return '-';
-  const toMoney = (v: number | null) =>
-    v == null ? '' : `$${v.toLocaleString()}`;
+  const toMoney = (v: number | null) => (v == null ? '' : `$${v.toLocaleString()}`);
   if (min != null && max != null) return `${toMoney(min)} – ${toMoney(max)}`;
   if (min != null) return `${toMoney(min)}+`;
   return `up to ${toMoney(max)}`;
@@ -44,10 +48,15 @@ export default function ClientsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  // ✅ pending criteria change badge data
+  const [pendingByClient, setPendingByClient] = useState<Record<string, PendingMeta>>({});
+  const [pendingLoadError, setPendingLoadError] = useState<string | null>(null);
+
   useEffect(() => {
     const loadClients = async () => {
       setLoading(true);
       setError(null);
+      setPendingLoadError(null);
 
       const { data, error } = await supabase
         .from('clients')
@@ -62,7 +71,7 @@ export default function ClientsPage() {
           budget_min,
           budget_max,
           preferred_locations
-        `
+        `,
         )
         .order('created_at', { ascending: false });
 
@@ -70,8 +79,58 @@ export default function ClientsPage() {
         console.error('Error loading clients:', error);
         setError(error.message);
         setClients([]);
-      } else {
-        setClients((data || []) as Client[]);
+        setPendingByClient({});
+        setLoading(false);
+        return;
+      }
+
+      const rows = (data || []) as Client[];
+      setClients(rows);
+
+      // Best-effort: fetch pending criteria changes for visible clients
+      try {
+        const ids = rows.map((r) => r.id).filter(Boolean);
+        if (ids.length === 0) {
+          setPendingByClient({});
+          setLoading(false);
+          return;
+        }
+
+        // Pull pending change rows (small fields) and build:
+        // - pendingCount per client
+        // - latest pending change id per client
+        const { data: pendingRows, error: pendingErr } = await supabase
+          .from('client_criteria_changes')
+          .select('id, client_id, created_at')
+          .in('client_id', ids)
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false });
+
+        if (pendingErr) {
+          // Non-fatal: table may not exist yet in dev
+          throw pendingErr;
+        }
+
+        const map: Record<string, PendingMeta> = {};
+        for (const r of pendingRows || []) {
+          const clientId = (r as any).client_id as string;
+          const changeId = (r as any).id as string;
+
+          if (!map[clientId]) {
+            map[clientId] = { pendingCount: 1, latestId: changeId };
+          } else {
+            map[clientId].pendingCount += 1;
+            // rows are ordered newest→oldest so first seen is latest
+          }
+        }
+
+        setPendingByClient(map);
+      } catch (e: any) {
+        console.error('Error loading pending criteria changes (non-fatal):', e);
+        setPendingLoadError(
+          e?.message || 'Could not load pending criteria change requests.',
+        );
+        setPendingByClient({});
       }
 
       setLoading(false);
@@ -100,13 +159,7 @@ export default function ClientsPage() {
 
       if (!term) return true;
 
-      const haystack = [
-        c.name,
-        c.email,
-        c.phone,
-        c.preferred_locations,
-        c.client_type,
-      ]
+      const haystack = [c.name, c.email, c.phone, c.preferred_locations, c.client_type]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
@@ -136,6 +189,11 @@ export default function ClientsPage() {
     }
 
     setClients((prev) => prev.filter((c) => c.id !== client.id));
+    setPendingByClient((prev) => {
+      const next = { ...prev };
+      delete next[client.id];
+      return next;
+    });
     setDeletingId(null);
   };
 
@@ -188,25 +246,27 @@ export default function ClientsPage() {
         </div>
 
         <p className="text-[11px] text-slate-400">
-          Filters apply instantly. Use this as your primary client list instead
-          of spreadsheet hell.
+          Filters apply instantly. Use this as your primary client list instead of spreadsheet
+          hell.
         </p>
+
+        {pendingLoadError && (
+          <p className="text-[11px] text-amber-200">
+            Pending criteria badge unavailable: {pendingLoadError}
+          </p>
+        )}
       </Card>
 
       {/* Errors / loading */}
       {error && (
         <Card>
-          <p className="text-sm text-red-300">
-            Error loading clients: {error}
-          </p>
+          <p className="text-sm text-red-300">Error loading clients: {error}</p>
         </Card>
       )}
 
       {deleteError && (
         <Card>
-          <p className="text-sm text-red-300">
-            Error deleting client: {deleteError}
-          </p>
+          <p className="text-sm text-red-300">Error deleting client: {deleteError}</p>
         </Card>
       )}
 
@@ -221,9 +281,8 @@ export default function ClientsPage() {
         <Card>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <p className="text-sm text-slate-300">
-              No clients yet. Click{' '}
-              <span className="font-semibold">Add client</span> to create your
-              first buyer or seller.
+              No clients yet. Click <span className="font-semibold">Add client</span> to create
+              your first buyer or seller.
             </p>
             <Link href="/clients/new">
               <Button variant="secondary" className="w-full sm:w-auto">
@@ -241,102 +300,117 @@ export default function ClientsPage() {
             <table className="min-w-full text-sm">
               <thead className="bg-white/5 text-xs uppercase text-slate-300">
                 <tr>
-                  <th className="px-3 py-2 text-left border-b border-white/10">
-                    Client
-                  </th>
-                  <th className="px-3 py-2 text-left border-b border-white/10">
-                    Type
-                  </th>
-                  <th className="px-3 py-2 text-left border-b border-white/10">
-                    Stage
-                  </th>
-                  <th className="px-3 py-2 text-left border-b border-white/10">
-                    Budget
-                  </th>
+                  <th className="px-3 py-2 text-left border-b border-white/10">Client</th>
+                  <th className="px-3 py-2 text-left border-b border-white/10">Type</th>
+                  <th className="px-3 py-2 text-left border-b border-white/10">Stage</th>
+                  <th className="px-3 py-2 text-left border-b border-white/10">Budget</th>
                   <th className="px-3 py-2 text-left border-b border-white/10 hidden md:table-cell">
                     Preferred locations
                   </th>
-                  <th className="px-3 py-2 text-right border-b border-white/10">
-                    Actions
-                  </th>
+                  <th className="px-3 py-2 text-right border-b border-white/10">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredClients.map((c) => (
-                  <tr
-                    key={c.id}
-                    className="hover:bg-white/5 transition-colors text-slate-100"
-                  >
-                    <td className="px-3 py-2 border-b border-white/5 align-top">
-                      <Link
-                        href={`/clients/${c.id}`}
-                        className="font-medium text-[#EBD27A] hover:underline"
-                      >
-                        {c.name}
-                      </Link>
-                      <div className="text-xs text-slate-400 mt-0.5 space-y-0.5">
-                        {c.phone && <div>📞 {c.phone}</div>}
-                        {c.email && <div>✉️ {c.email}</div>}
-                      </div>
-                    </td>
+                {filteredClients.map((c) => {
+                  const pending = pendingByClient[c.id];
+                  const hasPending = !!pending && pending.pendingCount > 0 && !!pending.latestId;
 
-                    <td className="px-3 py-2 border-b border-white/5 align-top">
-                      <span className="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-[11px] capitalize text-slate-100 border border-white/15">
-                        {c.client_type || '—'}
-                      </span>
-                    </td>
+                  return (
+                    <tr
+                      key={c.id}
+                      className="hover:bg-white/5 transition-colors text-slate-100"
+                    >
+                      <td className="px-3 py-2 border-b border-white/5 align-top">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <Link
+                              href={`/clients/${c.id}`}
+                              className="font-medium text-[#EBD27A] hover:underline"
+                            >
+                              {c.name}
+                            </Link>
 
-                    <td className="px-3 py-2 border-b border-white/5 align-top">
-                      <span className="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-[11px] capitalize text-slate-100 border border-white/15">
-                        {(c.stage || 'lead').replace('_', ' ')}
-                      </span>
-                    </td>
+                            <div className="text-xs text-slate-400 mt-0.5 space-y-0.5">
+                              {c.phone && <div>📞 {c.phone}</div>}
+                              {c.email && <div>✉️ {c.email}</div>}
+                            </div>
+                          </div>
 
-                    <td className="px-3 py-2 border-b border-white/5 align-top">
-                      <span className="text-sm text-slate-100">
-                        {formatBudget(c.budget_min, c.budget_max)}
-                      </span>
-                    </td>
+                          {/* ✅ Pending criteria badge (click → prefilled edit) */}
+                          {hasPending && (
+                            <Link
+                              href={`/clients/${encodeURIComponent(c.id)}/edit?change=${encodeURIComponent(
+                                pending.latestId!,
+                              )}`}
+                              className="shrink-0 inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-[11px] text-amber-200 hover:bg-amber-400/15"
+                              title="Client requested criteria updates"
+                            >
+                              Criteria
+                              <span className="rounded-full bg-amber-300/20 px-1.5 py-0.5 text-[10px] text-amber-100 border border-amber-300/20">
+                                {pending.pendingCount}
+                              </span>
+                            </Link>
+                          )}
+                        </div>
+                      </td>
 
-                    <td className="px-3 py-2 border-b border-white/5 align-top hidden md:table-cell">
-                      {c.preferred_locations ? (
-                        <span className="text-xs text-slate-200">
-                          {c.preferred_locations}
+                      <td className="px-3 py-2 border-b border-white/5 align-top">
+                        <span className="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-[11px] capitalize text-slate-100 border border-white/15">
+                          {c.client_type || '—'}
                         </span>
-                      ) : (
-                        <span className="text-xs text-slate-500">—</span>
-                      )}
-                    </td>
+                      </td>
 
-                    <td className="px-3 py-2 border-b border-white/5 align-top">
-                      <div className="flex justify-end gap-2">
-  <Link
-    href={`/clients/${c.id}`}
-    className="text-xs text-[#EBD27A] hover:underline"
-  >
-    View
-  </Link>
+                      <td className="px-3 py-2 border-b border-white/5 align-top">
+                        <span className="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-[11px] capitalize text-slate-100 border border-white/15">
+                          {(c.stage || 'lead').replace('_', ' ')}
+                        </span>
+                      </td>
 
-  <Link
-    href={`/clients/${c.id}/edit`}
-    className="text-xs text-slate-200 hover:text-white hover:underline"
-  >
-    Edit
-  </Link>
+                      <td className="px-3 py-2 border-b border-white/5 align-top">
+                        <span className="text-sm text-slate-100">
+                          {formatBudget(c.budget_min, c.budget_max)}
+                        </span>
+                      </td>
 
-  <button
-    type="button"
-    onClick={() => handleDelete(c)}
-    disabled={deletingId === c.id}
-    className="text-xs text-red-300 hover:text-red-200 hover:underline disabled:opacity-50"
-  >
-    {deletingId === c.id ? 'Deleting…' : 'Delete'}
-  </button>
-</div>
+                      <td className="px-3 py-2 border-b border-white/5 align-top hidden md:table-cell">
+                        {c.preferred_locations ? (
+                          <span className="text-xs text-slate-200">
+                            {c.preferred_locations}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-500">—</span>
+                        )}
+                      </td>
 
-                    </td>
-                  </tr>
-                ))}
+                      <td className="px-3 py-2 border-b border-white/5 align-top">
+                        <div className="flex justify-end gap-2">
+                          <Link
+                            href={`/clients/${c.id}`}
+                            className="text-xs text-[#EBD27A] hover:underline"
+                          >
+                            View
+                          </Link>
+
+                          <Link
+                            href={`/clients/${c.id}/edit`}
+                            className="text-xs text-slate-200 hover:text-white hover:underline"
+                          >
+                            Edit
+                          </Link>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(c)}
+                            disabled={deletingId === c.id}
+                            className="text-xs text-red-300 hover:text-red-200 hover:underline disabled:opacity-50"
+                          >
+                            {deletingId === c.id ? 'Deleting…' : 'Delete'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

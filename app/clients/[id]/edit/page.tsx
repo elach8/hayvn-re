@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import { Card } from '../../../components/Card';
@@ -19,6 +19,14 @@ type Client = {
   budget_max: number | null;
   preferred_locations: string | null;
   notes: string | null;
+};
+
+type CriteriaChangeRow = {
+  id: string;
+  client_id: string;
+  status: 'pending' | 'accepted' | 'rejected' | string;
+  changes: Record<string, { from: any; to: any }> | null;
+  created_at: string | null;
 };
 
 const STAGES = ['lead', 'active', 'under_contract', 'past', 'lost'] as const;
@@ -60,6 +68,8 @@ export default function EditClientPage() {
   const params = useParams();
   const id = params?.id as string;
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const changeId = searchParams?.get('change');
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -67,6 +77,12 @@ export default function EditClientPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+
+  // Criteria change request context
+  const [changeRow, setChangeRow] = useState<CriteriaChangeRow | null>(null);
+  const [changeError, setChangeError] = useState<string | null>(null);
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectedFlash, setRejectedFlash] = useState(false);
 
   // Fields
   const [name, setName] = useState('');
@@ -122,17 +138,27 @@ export default function EditClientPage() {
     setLocationTokens((prev) => prev.filter((p) => p.toLowerCase() !== key));
   };
 
+  const changedFields = useMemo(() => {
+    const ch = changeRow?.changes || null;
+    if (!ch) return [] as string[];
+    return Object.keys(ch);
+  }, [changeRow]);
+
+  // Load client + optional change request
   useEffect(() => {
     if (!id) return;
 
     const load = async () => {
       setLoading(true);
       setLoadError(null);
+      setChangeError(null);
+      setRejectedFlash(false);
 
+      // Load client
       const { data, error } = await supabase
         .from('clients')
         .select(
-          'id,name,email,phone,client_type,stage,budget_min,budget_max,preferred_locations,notes'
+          'id,name,email,phone,client_type,stage,budget_min,budget_max,preferred_locations,notes',
         )
         .eq('id', id)
         .maybeSingle();
@@ -151,6 +177,7 @@ export default function EditClientPage() {
         return;
       }
 
+      // Set base values from canonical client
       setName(c.name ?? '');
       setClientType(((c.client_type as any) || 'buyer') as any);
       setStage(((c.stage as any) || 'lead') as any);
@@ -161,11 +188,64 @@ export default function EditClientPage() {
       setNotes(c.notes ?? '');
       setLocationTokens(parseLocations(c.preferred_locations));
 
+      // Load change request (if any)
+      if (changeId) {
+        try {
+          const { data: changeData, error: changeErr } = await supabase
+            .from('client_criteria_changes')
+            .select('id, client_id, status, changes, created_at')
+            .eq('id', changeId)
+            .maybeSingle();
+
+          if (changeErr) throw changeErr;
+
+          const row = (changeData as any) as CriteriaChangeRow | null;
+          if (!row) {
+            setChangeError('Change request not found.');
+          } else if (row.client_id !== id) {
+            setChangeError('This change request does not match the current client.');
+          } else {
+            setChangeRow(row);
+
+            // Prefill from requested changes (only fields this page currently edits)
+            const ch = row.changes || {};
+            const toVal = (key: string) => (ch as any)?.[key]?.to;
+
+            if (toVal('name') != null) setName(String(toVal('name') ?? ''));
+            if (toVal('client_type') != null) setClientType(String(toVal('client_type')) as any);
+            if (toVal('stage') != null) setStage(String(toVal('stage')) as any);
+            if (toVal('email') != null) setEmail(String(toVal('email') ?? ''));
+            if (toVal('phone') != null) setPhone(String(toVal('phone') ?? ''));
+            if (toVal('budget_min') !== undefined) {
+              const v = toVal('budget_min');
+              setBudgetMin(v == null ? '' : String(v));
+            }
+            if (toVal('budget_max') !== undefined) {
+              const v = toVal('budget_max');
+              setBudgetMax(v == null ? '' : String(v));
+            }
+            if (toVal('notes') !== undefined) {
+              const v = toVal('notes');
+              setNotes(v == null ? '' : String(v));
+            }
+            if (toVal('preferred_locations') !== undefined) {
+              const v = toVal('preferred_locations');
+              setLocationTokens(parseLocations(v == null ? null : String(v)));
+            }
+          }
+        } catch (e: any) {
+          console.error('Error loading criteria change request:', e);
+          setChangeError(e?.message || 'Could not load criteria change request.');
+        }
+      } else {
+        setChangeRow(null);
+      }
+
       setLoading(false);
     };
 
     load();
-  }, [id]);
+  }, [id, changeId]);
 
   const onSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -209,11 +289,55 @@ export default function EditClientPage() {
       return;
     }
 
+    // Mark change request accepted if we're in review mode and it's still pending
+    if (changeRow?.id) {
+      try {
+        await supabase
+          .from('client_criteria_changes')
+          .update({
+            status: 'accepted',
+            resolved_at: new Date().toISOString(),
+            // resolved_by: (await supabase.auth.getUser()).data.user?.id ?? null, // optional
+          } as any)
+          .eq('id', changeRow.id);
+      } catch (e) {
+        // non-fatal; canonical client saved is the important part
+        console.error('Failed to mark change accepted (non-fatal):', e);
+      }
+    }
+
     setSaving(false);
     setSavedFlash(true);
+  };
 
-    // optional: go back to detail after save
-    // router.push(`/clients/${id}`);
+  const onReject = async () => {
+    if (!changeRow?.id) return;
+    setRejecting(true);
+    setChangeError(null);
+    setSaveError(null);
+    setSavedFlash(false);
+
+    try {
+      const { error } = await supabase
+        .from('client_criteria_changes')
+        .update({
+          status: 'rejected',
+          resolved_at: new Date().toISOString(),
+          // resolved_by: (await supabase.auth.getUser()).data.user?.id ?? null, // optional
+        } as any)
+        .eq('id', changeRow.id);
+
+      if (error) throw error;
+
+      setRejectedFlash(true);
+      // Remove change param from URL so we go back to normal edit context
+      router.replace(`/clients/${encodeURIComponent(id)}/edit`);
+    } catch (e: any) {
+      console.error('Reject error:', e);
+      setChangeError(e?.message || 'Failed to reject request.');
+    } finally {
+      setRejecting(false);
+    }
   };
 
   return (
@@ -241,6 +365,44 @@ export default function EditClientPage() {
         </div>
       </header>
 
+      {/* Review banner (when coming from badge) */}
+      {!loading && !loadError && changeId && (
+        <Card className="space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+            <div>
+              <p className="text-sm text-amber-200 font-medium">
+                Client requested criteria updates
+              </p>
+              <p className="text-xs text-slate-300">
+                Review the pre-filled changes below. Click <span className="font-semibold">Save changes</span> to apply,
+                or reject the request.
+              </p>
+              {changedFields.length > 0 && (
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Changed fields: <span className="text-slate-200">{changedFields.join(', ')}</span>
+                </p>
+              )}
+              {rejectedFlash && (
+                <p className="text-sm text-emerald-300 mt-2">Request rejected.</p>
+              )}
+              {changeError && <p className="text-sm text-red-300 mt-2">{changeError}</p>}
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className="text-xs"
+                disabled={rejecting}
+                onClick={onReject}
+              >
+                {rejecting ? 'Rejecting…' : 'Reject request'}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {loading && (
         <Card>
           <p className="text-sm text-slate-300">Loading…</p>
@@ -257,9 +419,7 @@ export default function EditClientPage() {
         <Card className="space-y-4">
           <form onSubmit={onSave} className="space-y-4">
             {saveError && <p className="text-sm text-red-300">{saveError}</p>}
-            {savedFlash && (
-              <p className="text-sm text-emerald-300">Saved.</p>
-            )}
+            {savedFlash && <p className="text-sm text-emerald-300">Saved.</p>}
 
             {/* Name */}
             <div>
@@ -482,3 +642,4 @@ export default function EditClientPage() {
     </div>
   );
 }
+
