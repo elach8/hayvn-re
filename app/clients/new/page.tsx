@@ -35,13 +35,19 @@ function toNumberOrNull(raw: string) {
 }
 
 function normalizeLocations(raw: string) {
-  // Accept “Irvine / Newport Beach”, new lines, semicolons, etc.
-  // Store as comma-separated for compatibility with your edge function.
   const parts = raw
     .split(/[,;\n/|]+/g)
     .map((x) => x.trim())
     .filter(Boolean);
   return parts.join(', ');
+}
+
+function formatMoneyInput(raw: string) {
+  const cleaned = raw.replace(/[^\d]/g, '');
+  if (!cleaned) return '';
+  const n = Number(cleaned);
+  if (Number.isNaN(n)) return '';
+  return n.toLocaleString();
 }
 
 export default function NewClientPage() {
@@ -53,24 +59,38 @@ export default function NewClientPage() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
 
+  // Buyer fields
   const [budgetMin, setBudgetMin] = useState('');
   const [budgetMax, setBudgetMax] = useState('');
   const [preferredLocations, setPreferredLocations] = useState('');
+
+  // Shared notes
   const [notes, setNotes] = useState('');
 
-  // NEW: matching signals
+  // Buyer matching signals
   const [propertyTypes, setPropertyTypes] = useState<string[]>([]);
   const [minBeds, setMinBeds] = useState('');
   const [minBaths, setMinBaths] = useState('');
   const [dealStyle, setDealStyle] = useState<DealStyle>('either');
+
+  // Seller fields (stored in notes for now, since schema isn’t shown)
+  const [sellerAddress, setSellerAddress] = useState('');
+  const [sellerCity, setSellerCity] = useState('');
+  const [sellerState, setSellerState] = useState('');
+  const [sellerTargetPrice, setSellerTargetPrice] = useState('');
+  const [sellerTimeline, setSellerTimeline] = useState('');
+  const [sellerGoals, setSellerGoals] = useState('');
+  const [sellerShowings, setSellerShowings] = useState('');
 
   const [preparePortal, setPreparePortal] = useState(true);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // NEW: ensure we stamp brokerage_id + agent_id for scoping + auth logic.
-  const [agentMeta, setAgentMeta] = useState<{ brokerage_id: string | null; agent_id: string | null }>({
+  const [agentMeta, setAgentMeta] = useState<{
+    brokerage_id: string | null;
+    agent_id: string | null;
+  }>({
     brokerage_id: null,
     agent_id: null,
   });
@@ -103,11 +123,46 @@ export default function NewClientPage() {
     loadAgent();
   }, []);
 
+  const isBuyer = clientType === 'buyer' || clientType === 'both';
+  const isSeller = clientType === 'seller' || clientType === 'both';
+
   const budgetMinNum = useMemo(() => toNumberOrNull(budgetMin), [budgetMin]);
   const budgetMaxNum = useMemo(() => toNumberOrNull(budgetMax), [budgetMax]);
+  const sellerTargetPriceNum = useMemo(
+    () => toNumberOrNull(sellerTargetPrice),
+    [sellerTargetPrice],
+  );
 
   const handleTogglePropertyType = (id: string) => {
-    setPropertyTypes((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setPropertyTypes((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
+
+  const buildSellerNotesBlock = () => {
+    const lines: string[] = [];
+    const push = (label: string, value: string) => {
+      const v = value.trim();
+      if (!v) return;
+      lines.push(`${label}: ${v}`);
+    };
+
+    const addrLine = [sellerAddress, sellerCity, sellerState]
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .join(', ');
+
+    if (addrLine) lines.push(`Listing Address: ${addrLine}`);
+    if (sellerTargetPriceNum != null) {
+      lines.push(`Target List Price: $${sellerTargetPriceNum.toLocaleString()}`);
+    }
+    push('Timeline', sellerTimeline);
+    push('Seller goals', sellerGoals);
+    push('Showing constraints', sellerShowings);
+
+    if (lines.length === 0) return null;
+
+    return `\n\n---\nSeller profile\n${lines.map((l) => `- ${l}`).join('\n')}\n`;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -118,10 +173,11 @@ export default function NewClientPage() {
       return;
     }
 
-    // Light validation (don’t be rigid)
-    if (budgetMinNum != null && budgetMaxNum != null && budgetMinNum > budgetMaxNum) {
-      setError('Budget Min cannot be greater than Budget Max.');
-      return;
+    if (isBuyer) {
+      if (budgetMinNum != null && budgetMaxNum != null && budgetMinNum > budgetMaxNum) {
+        setError('Budget Min cannot be greater than Budget Max.');
+        return;
+      }
     }
 
     setSaving(true);
@@ -132,9 +188,13 @@ export default function NewClientPage() {
     const trimmedPhone = phone.trim();
     const lowerEmail = trimmedEmail.toLowerCase();
 
-    const prefLoc = normalizeLocations(preferredLocations);
+    const prefLoc = isBuyer ? normalizeLocations(preferredLocations) : '';
 
-    // 1) Insert the CRM client row
+    const sellerBlock = isSeller ? buildSellerNotesBlock() : null;
+    const mergedNotes =
+      (notes.trim() || '') + (sellerBlock ? sellerBlock : '');
+    const finalNotes = mergedNotes.trim() ? mergedNotes.trim() : null;
+
     const { data: insertedClient, error: clientError } = await supabase
       .from('clients')
       .insert([
@@ -145,16 +205,19 @@ export default function NewClientPage() {
           client_type: clientType,
           stage,
 
-          budget_min: budgetMinNum,
-          budget_max: budgetMaxNum,
-          preferred_locations: prefLoc || null,
-          notes: notes.trim() || null,
+          // Buyer-only fields (null out when not applicable)
+          budget_min: isBuyer ? budgetMinNum : null,
+          budget_max: isBuyer ? budgetMaxNum : null,
+          preferred_locations: isBuyer ? (prefLoc || null) : null,
 
-          // NEW fields (make sure your DB has these columns; nullable is fine)
-          property_types: propertyTypes.length ? propertyTypes : null,
-          min_beds: toNumberOrNull(minBeds),
-          min_baths: toNumberOrNull(minBaths),
-          deal_style: dealStyle || null,
+          // Notes (includes seller block)
+          notes: finalNotes,
+
+          // Buyer matching signals (null out when not applicable)
+          property_types: isBuyer ? (propertyTypes.length ? propertyTypes : null) : null,
+          min_beds: isBuyer ? toNumberOrNull(minBeds) : null,
+          min_baths: isBuyer ? toNumberOrNull(minBaths) : null,
+          deal_style: isBuyer ? (dealStyle || null) : null,
 
           // IMPORTANT for scoping
           brokerage_id: agentMeta.brokerage_id,
@@ -196,7 +259,7 @@ export default function NewClientPage() {
               client_id: newClientId,
               role: 'primary',
             },
-            { onConflict: 'portal_user_id,client_id' }
+            { onConflict: 'portal_user_id,client_id' },
           );
 
         if (linkError) {
@@ -212,8 +275,12 @@ export default function NewClientPage() {
     <div className="max-w-2xl space-y-4">
       <header className="flex items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">Add Client</h1>
-          <p className="text-sm text-slate-300">Create a buyer or seller profile with matching signals.</p>
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+            Add Client
+          </h1>
+          <p className="text-sm text-slate-300">
+            Create a buyer or seller profile. Buyer fields and seller fields adapt based on type.
+          </p>
         </div>
         <Link href="/clients">
           <Button variant="ghost" className="text-xs sm:text-sm">
@@ -241,7 +308,9 @@ export default function NewClientPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1 text-slate-100">Type</label>
+              <label className="block text-sm font-medium mb-1 text-slate-100">
+                Type
+              </label>
               <select
                 value={clientType}
                 onChange={(e) => setClientType(e.target.value as any)}
@@ -253,10 +322,20 @@ export default function NewClientPage() {
                   </option>
                 ))}
               </select>
+
+              <p className="mt-1 text-[11px] text-slate-400">
+                {clientType === 'seller'
+                  ? 'Seller view: listing + pricing + timeline.'
+                  : clientType === 'both'
+                  ? 'Both: buyer criteria + seller listing.'
+                  : 'Buyer view: matching signals + budget + locations.'}
+              </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-slate-100">Stage</label>
+              <label className="block text-sm font-medium mb-1 text-slate-100">
+                Stage
+              </label>
               <select
                 value={stage}
                 onChange={(e) => setStage(e.target.value as any)}
@@ -271,7 +350,9 @@ export default function NewClientPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-slate-100">Phone</label>
+              <label className="block text-sm font-medium mb-1 text-slate-100">
+                Phone
+              </label>
               <input
                 type="tel"
                 value={phone}
@@ -283,7 +364,9 @@ export default function NewClientPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1 text-slate-100">Email</label>
+            <label className="block text-sm font-medium mb-1 text-slate-100">
+              Email
+            </label>
             <input
               type="email"
               value={email}
@@ -301,133 +384,288 @@ export default function NewClientPage() {
               />
               <label htmlFor="prepare-portal" className="leading-snug">
                 If a client portal account already exists for this email, link this client to it automatically. Otherwise,
-                they&apos;ll be linked once they sign in at <code className="text-[10px]">/portal</code>.
+                they&apos;ll be linked once they sign in at{' '}
+                <code className="text-[10px]">/portal</code>.
               </label>
             </div>
           </div>
 
-          {/* Matching signals */}
-          <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-semibold text-slate-100">Matching signals</div>
-                <div className="text-xs text-slate-300">Keep it light — this helps recommendations rank better.</div>
-              </div>
-              <div className="text-[11px] text-slate-400">
-                {agentMeta.brokerage_id ? 'Brokerage linked' : 'No brokerage_id'}
-              </div>
-            </div>
+          {/* Buyer section */}
+          {isBuyer && (
+            <>
+              {/* Matching signals */}
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-100">
+                      Buyer matching signals
+                    </div>
+                    <div className="text-xs text-slate-300">
+                      Used for ranking recommendations and matches.
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-slate-400">
+                    {agentMeta.brokerage_id ? 'Brokerage linked' : 'No brokerage_id'}
+                  </div>
+                </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-2 text-slate-100">Property types</label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {PROPERTY_TYPE_OPTIONS.map((opt) => {
-                  const checked = propertyTypes.includes(opt.id);
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => handleTogglePropertyType(opt.id)}
-                      className={[
-                        'flex items-center justify-between rounded-lg border px-3 py-2 text-sm transition-colors',
-                        checked
-                          ? 'border-[#EBD27A] bg-[#EBD27A]/10 text-[#EBD27A]'
-                          : 'border-white/15 bg-black/40 text-slate-200 hover:bg-white/10',
-                      ].join(' ')}
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-slate-100">
+                    Property types
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {PROPERTY_TYPE_OPTIONS.map((opt) => {
+                      const checked = propertyTypes.includes(opt.id);
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => handleTogglePropertyType(opt.id)}
+                          className={[
+                            'flex items-center justify-between rounded-lg border px-3 py-2 text-sm transition-colors',
+                            checked
+                              ? 'border-[#EBD27A] bg-[#EBD27A]/10 text-[#EBD27A]'
+                              : 'border-white/15 bg-black/40 text-slate-200 hover:bg-white/10',
+                          ].join(' ')}
+                        >
+                          <span>{opt.label}</span>
+                          <span className="text-xs">{checked ? '✓' : ''}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Optional — leave blank to consider all property types.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">
+                      Min Beds
+                    </label>
+                    <input
+                      type="text"
+                      value={minBeds}
+                      onChange={(e) => setMinBeds(e.target.value)}
+                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                      placeholder="e.g., 3"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">
+                      Min Baths
+                    </label>
+                    <input
+                      type="text"
+                      value={minBaths}
+                      onChange={(e) => setMinBaths(e.target.value)}
+                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                      placeholder="e.g., 2"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">
+                      Deal Style
+                    </label>
+                    <select
+                      value={dealStyle}
+                      onChange={(e) => setDealStyle(e.target.value as DealStyle)}
+                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
                     >
-                      <span>{opt.label}</span>
-                      <span className="text-xs">{checked ? '✓' : ''}</span>
-                    </button>
-                  );
-                })}
+                      {DEAL_STYLE_OPTIONS.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
-              <p className="mt-1 text-[11px] text-slate-400">Optional — leave blank to consider all property types.</p>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="rounded-xl border border-white/10 bg-black/30 p-3 space-y-3">
+                <div className="text-sm font-semibold text-slate-100">
+                  Buyer search constraints
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">
+                      Budget Min
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={budgetMin}
+                      onChange={(e) => setBudgetMin(formatMoneyInput(e.target.value))}
+                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                      placeholder="e.g., 800,000"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">
+                      Budget Max
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={budgetMax}
+                      onChange={(e) => setBudgetMax(formatMoneyInput(e.target.value))}
+                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                      placeholder="e.g., 1,500,000"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">
+                    Preferred Locations
+                  </label>
+                  <input
+                    type="text"
+                    value={preferredLocations}
+                    onChange={(e) => setPreferredLocations(e.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                    placeholder="Irvine / Newport Beach / 95131 / etc."
+                  />
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    You can separate with commas, slashes, or new lines — we normalize it for matching.
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Seller section (notes-backed for now) */}
+          {isSeller && (
+            <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-slate-100">
+                    Seller details
+                  </div>
+                  <div className="text-xs text-slate-300">
+                    Stored in notes for now (until we add seller columns / a listing link).
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium mb-1 text-slate-100">
+                    Listing address
+                  </label>
+                  <input
+                    type="text"
+                    value={sellerAddress}
+                    onChange={(e) => setSellerAddress(e.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                    placeholder="123 Main St"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">
+                    Target list price
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={sellerTargetPrice}
+                    onChange={(e) => setSellerTargetPrice(formatMoneyInput(e.target.value))}
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                    placeholder="e.g., 1,250,000"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">
+                    City
+                  </label>
+                  <input
+                    type="text"
+                    value={sellerCity}
+                    onChange={(e) => setSellerCity(e.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                    placeholder="Irvine"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">
+                    State
+                  </label>
+                  <input
+                    type="text"
+                    value={sellerState}
+                    onChange={(e) => setSellerState(e.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                    placeholder="CA"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">
+                    Timeline
+                  </label>
+                  <input
+                    type="text"
+                    value={sellerTimeline}
+                    onChange={(e) => setSellerTimeline(e.target.value)}
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                    placeholder="e.g., List in Feb, move by April"
+                  />
+                </div>
+              </div>
+
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-100">Min Beds</label>
+                <label className="block text-sm font-medium mb-1 text-slate-100">
+                  Seller goals
+                </label>
                 <input
                   type="text"
-                  value={minBeds}
-                  onChange={(e) => setMinBeds(e.target.value)}
+                  value={sellerGoals}
+                  onChange={(e) => setSellerGoals(e.target.value)}
                   className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                  placeholder="e.g., 3"
+                  placeholder="Price vs speed, repairs, rent-back, etc."
                 />
               </div>
+
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-100">Min Baths</label>
+                <label className="block text-sm font-medium mb-1 text-slate-100">
+                  Showing constraints
+                </label>
                 <input
                   type="text"
-                  value={minBaths}
-                  onChange={(e) => setMinBaths(e.target.value)}
+                  value={sellerShowings}
+                  onChange={(e) => setSellerShowings(e.target.value)}
                   className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                  placeholder="e.g., 2"
+                  placeholder="Notice required, pets, times to avoid, etc."
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1 text-slate-100">Deal Style</label>
-                <select
-                  value={dealStyle}
-                  onChange={(e) => setDealStyle(e.target.value as DealStyle)}
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                >
-                  {DEAL_STYLE_OPTIONS.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+
+              <div className="text-[11px] text-slate-400">
+                Next step: we can add real seller columns (or link a seller to a Property record) so this becomes structured.
               </div>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium mb-1 text-slate-100">Budget Min</label>
-              <input
-                type="text"
-                value={budgetMin}
-                onChange={(e) => setBudgetMin(e.target.value)}
-                className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                placeholder="e.g., 800000"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1 text-slate-100">Budget Max</label>
-              <input
-                type="text"
-                value={budgetMax}
-                onChange={(e) => setBudgetMax(e.target.value)}
-                className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                placeholder="e.g., 1500000"
-              />
-            </div>
-          </div>
+          )}
 
           <div>
-            <label className="block text-sm font-medium mb-1 text-slate-100">Preferred Locations</label>
-            <input
-              type="text"
-              value={preferredLocations}
-              onChange={(e) => setPreferredLocations(e.target.value)}
-              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-              placeholder="Irvine / Newport Beach / 95131 / etc."
-            />
-            <p className="mt-1 text-[11px] text-slate-400">
-              You can separate with commas, slashes, or new lines — we normalize it for matching.
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1 text-slate-100">Internal Notes</label>
+            <label className="block text-sm font-medium mb-1 text-slate-100">
+              Internal Notes
+            </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
               rows={3}
-              placeholder="How you met, criteria, quirks, etc."
+              placeholder="How you met, context, quirks, etc."
             />
+            {isSeller && (
+              <p className="mt-1 text-[11px] text-slate-400">
+                Seller details above will be appended to notes automatically on save.
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between pt-2">
