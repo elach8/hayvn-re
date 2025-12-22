@@ -1,7 +1,7 @@
 // app/tours/new/page.tsx
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -26,7 +26,10 @@ function NewTourInner() {
 
   const [clients, setClients] = useState<Client[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
-  const [loadingLookups, setLoadingLookups] = useState(true);
+
+  const [loadingClients, setLoadingClients] = useState(true);
+  const [loadingProps, setLoadingProps] = useState(false);
+
   const [lookupError, setLookupError] = useState<string | null>(null);
 
   // Form state
@@ -42,60 +45,103 @@ function NewTourInner() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // 1) Load clients once
   useEffect(() => {
-    const loadLookups = async () => {
-      setLoadingLookups(true);
+    const loadClients = async () => {
+      setLoadingClients(true);
       setLookupError(null);
 
-      const [clientsRes, propertiesRes] = await Promise.all([
-        supabase
-          .from('clients')
-          .select('id, name, client_type')
-          .order('created_at', { ascending: false })
-          .limit(200),
-        supabase
-          .from('properties')
-          .select('id, address, city, state, list_price')
-          .is('archived_at', null) // ✅ only non-archived
-          .order('created_at', { ascending: false })
-          .limit(200),
-      ]);
+      const { data, error } = await supabase
+        .from('clients')
+        .select('id, name, client_type')
+        .order('created_at', { ascending: false })
+        .limit(200);
 
-      if (clientsRes.error) {
-        console.error('Error loading clients:', clientsRes.error);
-        setLookupError(clientsRes.error.message);
+      if (error) {
+        console.error('Error loading clients:', error);
+        setLookupError(error.message || 'Error loading clients');
         setClients([]);
-      } else {
-        const loadedClients = (clientsRes.data || []) as Client[];
-        setClients(loadedClients);
-
-        // ✅ auto-select client when arriving from clients/[id]
-        if (
-          preselectClientId &&
-          loadedClients.some((c) => c.id === preselectClientId)
-        ) {
-          setClientId(preselectClientId);
-        }
+        setLoadingClients(false);
+        return;
       }
 
-      if (propertiesRes.error) {
-        console.error('Error loading properties:', propertiesRes.error);
-        setLookupError(
-          (prev) =>
-            prev ||
-            propertiesRes.error?.message ||
-            'Error loading properties',
-        );
-        setProperties([]);
-      } else {
-        setProperties((propertiesRes.data || []) as Property[]);
+      const loadedClients = (data || []) as Client[];
+      setClients(loadedClients);
+
+      // ✅ auto-select client when arriving from clients/[id]
+      if (
+        preselectClientId &&
+        loadedClients.some((c) => c.id === preselectClientId)
+      ) {
+        setClientId(preselectClientId);
       }
 
-      setLoadingLookups(false);
+      setLoadingClients(false);
     };
 
-    loadLookups();
+    loadClients();
   }, [preselectClientId]);
+
+  // 2) Load properties *for selected client* only (non-archived)
+  useEffect(() => {
+    const loadClientActiveProperties = async () => {
+      setLookupError(null);
+      setProperties([]);
+      setSelectedPropertyIds([]); // reset selection when client changes
+
+      if (!clientId) return;
+
+      setLoadingProps(true);
+
+      // Pull from client_properties so we can filter archived_at/status correctly
+      const { data, error } = await supabase
+        .from('client_properties')
+        .select(
+          `
+          id,
+          status,
+          archived_at,
+          properties (
+            id,
+            address,
+            city,
+            state,
+            list_price
+          )
+        `
+        )
+        .eq('client_id', clientId)
+        .is('archived_at', null) // ✅ NOT archived for this client
+        .neq('status', 'archived') // ✅ extra safety
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (error) {
+        console.error('Error loading client properties for tour:', error);
+        setLookupError(error.message || 'Error loading properties for this client');
+        setLoadingProps(false);
+        return;
+      }
+
+      const mapped: Property[] = (data || [])
+        .map((row: any) => row.properties)
+        .filter(Boolean)
+        .map((p: any) => ({
+          id: p.id as string,
+          address: p.address as string,
+          city: p.city as string,
+          state: p.state as string,
+          list_price: (p.list_price as number | null) ?? null,
+        }));
+
+      setProperties(mapped);
+      setLoadingProps(false);
+    };
+
+    loadClientActiveProperties();
+  }, [clientId]);
+
+  const loadingLookups = useMemo(() => loadingClients || loadingProps, [loadingClients, loadingProps]);
 
   const togglePropertySelection = (id: string) => {
     setSelectedPropertyIds((prev) =>
@@ -111,6 +157,7 @@ function NewTourInner() {
   };
 
   const handleBack = () => {
+    // ✅ History back, with fallback if opened in new tab
     if (typeof window !== 'undefined' && window.history.length > 1) {
       router.back();
       return;
@@ -184,9 +231,7 @@ function NewTourInner() {
 
     if (stopsError) {
       console.error('Error attaching tour properties:', stopsError);
-      setSaveError(
-        'Tour created, but error attaching properties: ' + stopsError.message,
-      );
+      setSaveError('Tour created, but error attaching properties: ' + stopsError.message);
       setSaving(false);
       router.push('/tours');
       return;
@@ -196,8 +241,7 @@ function NewTourInner() {
     router.push('/tours');
   };
 
-  const formatPrice = (v: number | null) =>
-    v == null ? '' : `$${v.toLocaleString()}`;
+  const formatPrice = (v: number | null) => (v == null ? '' : `$${v.toLocaleString()}`);
 
   return (
     <main className="min-h-screen max-w-3xl mx-auto px-4 sm:px-6 pb-8 text-slate-100">
@@ -205,8 +249,7 @@ function NewTourInner() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">New Tour</h1>
           <p className="text-sm text-slate-400">
-            Schedule a tour for a client and choose which properties you&apos;ll
-            visit.
+            Schedule a tour for a client and choose which attached properties you&apos;ll visit.
           </p>
         </div>
 
@@ -220,9 +263,7 @@ function NewTourInner() {
       </header>
 
       {loadingLookups && (
-        <p className="text-sm text-slate-300 mb-4">
-          Loading clients and properties…
-        </p>
+        <p className="text-sm text-slate-300 mb-4">Loading…</p>
       )}
 
       {lookupError && (
@@ -334,18 +375,26 @@ function NewTourInner() {
             Properties for this tour *
           </label>
           <p className="text-xs text-slate-400 mb-1">
-            Select all properties you plan to show. You can adjust order later
-            in the tour detail view.
+            Only shows properties attached to this client that are not archived.
           </p>
 
-          {properties.length === 0 && (
+          {!clientId && (
             <p className="text-sm text-slate-400">
-              No active properties in the system yet. Add some in the Properties
-              section first (or unarchive if needed).
+              Select a client to choose from their attached properties.
             </p>
           )}
 
-          {properties.length > 0 && (
+          {clientId && loadingProps && (
+            <p className="text-sm text-slate-300">Loading attached properties…</p>
+          )}
+
+          {clientId && !loadingProps && properties.length === 0 && (
+            <p className="text-sm text-slate-400">
+              No active attached properties for this client yet. Attach properties on the client page first.
+            </p>
+          )}
+
+          {clientId && properties.length > 0 && (
             <div className="max-h-64 overflow-y-auto border border-white/10 bg-black/30 rounded-md p-2 space-y-1 text-sm">
               {properties.map((p) => {
                 const checked = selectedPropertyIds.includes(p.id);
@@ -361,13 +410,10 @@ function NewTourInner() {
                       className="h-4 w-4 rounded border-white/30 bg-black/60 text-[#EBD27A] focus:ring-[#EBD27A]"
                     />
                     <div className="flex-1">
-                      <div className="font-medium text-slate-100">
-                        {p.address}
-                      </div>
+                      <div className="font-medium text-slate-100">{p.address}</div>
                       <div className="text-xs text-slate-400">
                         {p.city}, {p.state}{' '}
-                        {p.list_price != null &&
-                          `• ${formatPrice(p.list_price)}`}
+                        {p.list_price != null ? `• ${formatPrice(p.list_price)}` : ''}
                       </div>
                     </div>
                   </label>
@@ -379,15 +425,14 @@ function NewTourInner() {
           {selectedPropertyIds.length > 0 && (
             <p className="text-xs text-slate-400 mt-1">
               {selectedPropertyIds.length} property
-              {selectedPropertyIds.length === 1 ? '' : 'ies'} selected (will
-              become stops 1–{selectedPropertyIds.length}).
+              {selectedPropertyIds.length === 1 ? '' : 'ies'} selected (will become stops 1–{selectedPropertyIds.length}).
             </p>
           )}
         </section>
 
         <button
           type="submit"
-          disabled={saving || loadingLookups}
+          disabled={saving || loadingClients || loadingProps}
           className="inline-flex items-center px-4 py-2 rounded-full bg-[#EBD27A] text-slate-900 text-sm font-semibold hover:bg-[#f1db91] disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
         >
           {saving ? 'Creating tour…' : 'Create Tour'}
@@ -402,9 +447,7 @@ export default function NewTourPage() {
     <Suspense
       fallback={
         <main className="min-h-screen max-w-3xl mx-auto px-4 sm:px-6 pb-8 text-slate-100">
-          <p className="text-sm text-slate-300 pt-6">
-            Loading tour form…
-          </p>
+          <p className="text-sm text-slate-300 pt-6">Loading tour form…</p>
         </main>
       }
     >
@@ -412,5 +455,6 @@ export default function NewTourPage() {
     </Suspense>
   );
 }
+
 
 
