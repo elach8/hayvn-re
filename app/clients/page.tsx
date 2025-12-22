@@ -28,6 +28,7 @@ const STAGES = ['lead', 'active', 'under_contract', 'past', 'lost'] as const;
 type StageFilter = (typeof STAGES)[number] | 'all';
 
 const TYPES = ['buyer', 'seller', 'both'] as const;
+type TypeFilter = (typeof TYPES)[number] | 'all';
 
 function formatBudget(min: number | null, max: number | null) {
   if (min == null && max == null) return '-';
@@ -37,12 +38,21 @@ function formatBudget(min: number | null, max: number | null) {
   return `up to ${toMoney(max)}`;
 }
 
+function normalizeClientType(v: string | null): 'buyer' | 'seller' | 'both' | 'unknown' {
+  const t = (v || '').toLowerCase().trim();
+  if (t === 'buyer') return 'buyer';
+  if (t === 'seller') return 'seller';
+  if (t === 'both') return 'both';
+  return 'unknown';
+}
+
 export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [stageFilter, setStageFilter] = useState<StageFilter>('all');
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [search, setSearch] = useState('');
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -96,9 +106,6 @@ export default function ClientsPage() {
           return;
         }
 
-        // Pull pending change rows (small fields) and build:
-        // - pendingCount per client
-        // - latest pending change id per client
         const { data: pendingRows, error: pendingErr } = await supabase
           .from('client_criteria_changes')
           .select('id, client_id, created_at')
@@ -120,16 +127,13 @@ export default function ClientsPage() {
             map[clientId] = { pendingCount: 1, latestId: changeId };
           } else {
             map[clientId].pendingCount += 1;
-            // rows are ordered newest→oldest so first seen is latest
           }
         }
 
         setPendingByClient(map);
       } catch (e: any) {
         console.error('Error loading pending criteria changes (non-fatal):', e);
-        setPendingLoadError(
-          e?.message || 'Could not load pending criteria change requests.',
-        );
+        setPendingLoadError(e?.message || 'Could not load pending criteria change requests.');
         setPendingByClient({});
       }
 
@@ -150,13 +154,40 @@ export default function ClientsPage() {
     return counts;
   }, [clients]);
 
+  const typeCounts = useMemo(() => {
+    const counts: Record<TypeFilter, number> = {
+      all: clients.length,
+      buyer: 0,
+      seller: 0,
+      both: 0,
+    };
+
+    for (const c of clients) {
+      const t = normalizeClientType(c.client_type);
+      if (t === 'buyer') counts.buyer += 1;
+      else if (t === 'seller') counts.seller += 1;
+      else if (t === 'both') counts.both += 1;
+    }
+
+    return counts;
+  }, [clients]);
+
   const filteredClients = useMemo(() => {
     const term = search.trim().toLowerCase();
+
     return clients.filter((c) => {
+      // Stage filter
       if (stageFilter !== 'all') {
         if ((c.stage || '') !== stageFilter) return false;
       }
 
+      // Type filter
+      if (typeFilter !== 'all') {
+        const ct = normalizeClientType(c.client_type);
+        if (ct !== typeFilter) return false;
+      }
+
+      // Search
       if (!term) return true;
 
       const haystack = [c.name, c.email, c.phone, c.preferred_locations, c.client_type]
@@ -166,7 +197,7 @@ export default function ClientsPage() {
 
       return haystack.includes(term);
     });
-  }, [clients, stageFilter, search]);
+  }, [clients, stageFilter, typeFilter, search]);
 
   const handleDelete = async (client: Client) => {
     if (
@@ -202,12 +233,8 @@ export default function ClientsPage() {
       {/* Header */}
       <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
-            Clients
-          </h1>
-          <p className="text-sm text-slate-300">
-            Track buyers, sellers, and past clients in one place.
-          </p>
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">Clients</h1>
+          <p className="text-sm text-slate-300">Track buyers, sellers, and past clients in one place.</p>
         </div>
 
         <Link href="/clients/new">
@@ -217,7 +244,8 @@ export default function ClientsPage() {
 
       {/* Filters */}
       <Card className="space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex flex-col gap-3">
+          {/* Stage pills */}
           <div className="flex flex-wrap gap-2 text-[11px]">
             <FilterPill
               label={`All (${stageCounts.all ?? 0})`}
@@ -234,26 +262,49 @@ export default function ClientsPage() {
             ))}
           </div>
 
-          <div className="w-full sm:w-64">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-              placeholder="Search by name, email, phone…"
-            />
+          {/* Type pills + Search */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex flex-wrap gap-2 text-[11px]">
+              <FilterPill
+                label={`All types (${typeCounts.all})`}
+                active={typeFilter === 'all'}
+                onClick={() => setTypeFilter('all')}
+              />
+              <FilterPill
+                label={`Buyers (${typeCounts.buyer})`}
+                active={typeFilter === 'buyer'}
+                onClick={() => setTypeFilter('buyer')}
+              />
+              <FilterPill
+                label={`Sellers (${typeCounts.seller})`}
+                active={typeFilter === 'seller'}
+                onClick={() => setTypeFilter('seller')}
+              />
+              <FilterPill
+                label={`Both (${typeCounts.both})`}
+                active={typeFilter === 'both'}
+                onClick={() => setTypeFilter('both')}
+              />
+            </div>
+
+            <div className="w-full sm:w-64">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                placeholder="Search by name, email, phone…"
+              />
+            </div>
           </div>
         </div>
 
         <p className="text-[11px] text-slate-400">
-          Filters apply instantly. Use this as your primary client list instead of spreadsheet
-          hell.
+          Filters apply instantly. Use this as your primary client list instead of spreadsheet hell.
         </p>
 
         {pendingLoadError && (
-          <p className="text-[11px] text-amber-200">
-            Pending criteria badge unavailable: {pendingLoadError}
-          </p>
+          <p className="text-[11px] text-amber-200">Pending criteria badge unavailable: {pendingLoadError}</p>
         )}
       </Card>
 
@@ -281,8 +332,8 @@ export default function ClientsPage() {
         <Card>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <p className="text-sm text-slate-300">
-              No clients yet. Click <span className="font-semibold">Add client</span> to create
-              your first buyer or seller.
+              No clients match these filters. Click <span className="font-semibold">Add client</span> to create your next
+              buyer or seller.
             </p>
             <Link href="/clients/new">
               <Button variant="secondary" className="w-full sm:w-auto">
@@ -315,18 +366,14 @@ export default function ClientsPage() {
                   const pending = pendingByClient[c.id];
                   const hasPending = !!pending && pending.pendingCount > 0 && !!pending.latestId;
 
+                  const ct = normalizeClientType(c.client_type);
+
                   return (
-                    <tr
-                      key={c.id}
-                      className="hover:bg-white/5 transition-colors text-slate-100"
-                    >
+                    <tr key={c.id} className="hover:bg-white/5 transition-colors text-slate-100">
                       <td className="px-3 py-2 border-b border-white/5 align-top">
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <Link
-                              href={`/clients/${c.id}`}
-                              className="font-medium text-[#EBD27A] hover:underline"
-                            >
+                            <Link href={`/clients/${c.id}`} className="font-medium text-[#EBD27A] hover:underline">
                               {c.name}
                             </Link>
 
@@ -355,7 +402,18 @@ export default function ClientsPage() {
                       </td>
 
                       <td className="px-3 py-2 border-b border-white/5 align-top">
-                        <span className="inline-flex items-center rounded-full bg-white/10 px-2 py-0.5 text-[11px] capitalize text-slate-100 border border-white/15">
+                        <span
+                          className={[
+                            'inline-flex items-center rounded-full px-2 py-0.5 text-[11px] capitalize border',
+                            ct === 'buyer'
+                              ? 'bg-emerald-500/10 text-emerald-200 border-emerald-300/20'
+                              : ct === 'seller'
+                              ? 'bg-sky-500/10 text-sky-200 border-sky-300/20'
+                              : ct === 'both'
+                              ? 'bg-violet-500/10 text-violet-200 border-violet-300/20'
+                              : 'bg-white/10 text-slate-100 border-white/15',
+                          ].join(' ')}
+                        >
                           {c.client_type || '—'}
                         </span>
                       </td>
@@ -367,16 +425,12 @@ export default function ClientsPage() {
                       </td>
 
                       <td className="px-3 py-2 border-b border-white/5 align-top">
-                        <span className="text-sm text-slate-100">
-                          {formatBudget(c.budget_min, c.budget_max)}
-                        </span>
+                        <span className="text-sm text-slate-100">{formatBudget(c.budget_min, c.budget_max)}</span>
                       </td>
 
                       <td className="px-3 py-2 border-b border-white/5 align-top hidden md:table-cell">
                         {c.preferred_locations ? (
-                          <span className="text-xs text-slate-200">
-                            {c.preferred_locations}
-                          </span>
+                          <span className="text-xs text-slate-200">{c.preferred_locations}</span>
                         ) : (
                           <span className="text-xs text-slate-500">—</span>
                         )}
@@ -384,10 +438,7 @@ export default function ClientsPage() {
 
                       <td className="px-3 py-2 border-b border-white/5 align-top">
                         <div className="flex justify-end gap-2">
-                          <Link
-                            href={`/clients/${c.id}`}
-                            className="text-xs text-[#EBD27A] hover:underline"
-                          >
+                          <Link href={`/clients/${c.id}`} className="text-xs text-[#EBD27A] hover:underline">
                             View
                           </Link>
 
@@ -435,15 +486,12 @@ function FilterPill({
       onClick={onClick}
       className={[
         'px-3 py-1 rounded-full border text-xs transition whitespace-nowrap',
-        active
-          ? 'bg-white/20 text-white border-white/40 shadow-sm'
-          : 'bg-black/30 text-slate-200 border-white/15 hover:bg-white/10',
+        active ? 'bg-white/20 text-white border-white/40 shadow-sm' : 'bg-black/30 text-slate-200 border-white/15 hover:bg-white/10',
       ].join(' ')}
     >
       {label}
     </button>
   );
 }
-
 
 

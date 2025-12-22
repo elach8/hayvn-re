@@ -11,9 +11,15 @@ const navLinks = [
   { href: '/clients', label: 'Clients' },
   { href: '/properties', label: 'Properties' },
   { href: '/pipeline', label: 'Pipeline' },
+
+  // Buyer workflow
   { href: '/tours', label: 'Tours' },
+
+  // Seller workflow hub (NEW)
+  { href: '/listings', label: 'Listings' },
+
   { href: '/offers', label: 'Offers' },
-  { href: '/tools', label: 'Tools' },        // 👈 NEW
+  { href: '/tools', label: 'Tools' },
   { href: '/market-radar', label: 'Market Radar' },
   { href: '/analytics', label: 'Analytics' },
   { href: '/settings', label: 'Settings' },
