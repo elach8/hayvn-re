@@ -1084,7 +1084,7 @@ export default function ClientDetailPage() {
           <Card className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">Tours with this client</h2>
-              <Link href="/tours/new">
+              <Link href={`/tours/new?clientId=${client.id}`}>
                 <Button variant="secondary" className="text-xs px-3 py-1.5">
                   + New tour
                 </Button>
