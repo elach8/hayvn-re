@@ -37,6 +37,8 @@ type Property = {
   pipeline_stage: string;
 };
 
+type ClientPropertyStatus = 'active' | 'archived' | string;
+
 type ClientProperty = {
   id: string;
   relationship: string | null;
@@ -44,6 +46,10 @@ type ClientProperty = {
   is_favorite: boolean;
   client_feedback?: string | null;
   client_rating?: number | null;
+
+  status?: ClientPropertyStatus | null;
+  archived_at?: string | null;
+
   property: Property | null;
 };
 
@@ -113,6 +119,11 @@ export default function ClientDetailPage() {
   const [clientProperties, setClientProperties] = useState<ClientProperty[]>([]);
   const [propsLoading, setPropsLoading] = useState(true);
   const [propsError, setPropsError] = useState<string | null>(null);
+
+  // NEW: archive controls
+  const [showArchivedProps, setShowArchivedProps] = useState(false);
+  const [archivingCpId, setArchivingCpId] = useState<string | null>(null);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
 
   const [notes, setNotes] = useState<ClientNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(true);
@@ -207,6 +218,8 @@ export default function ClientDetailPage() {
           is_favorite,
           client_feedback,
           client_rating,
+          status,
+          archived_at,
           properties (
             id,
             address,
@@ -233,6 +246,8 @@ export default function ClientDetailPage() {
           is_favorite: row.is_favorite ?? false,
           client_feedback: row.client_feedback ?? null,
           client_rating: row.client_rating ?? null,
+          status: (row.status as string | null) ?? 'active',
+          archived_at: (row.archived_at as string | null) ?? null,
           property: row.properties
             ? {
                 id: row.properties.id,
@@ -604,6 +619,53 @@ export default function ClientDetailPage() {
     setSavingMessage(false);
   };
 
+  // NEW: archive / restore
+  const handleArchiveToggle = async (cp: ClientProperty, action: 'archive' | 'restore') => {
+    if (!cp?.id) return;
+
+    const verb = action === 'archive' ? 'Archive' : 'Restore';
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(`${verb} this property for this client? Feedback will be kept.`)
+    ) {
+      return;
+    }
+
+    setArchiveError(null);
+    setArchivingCpId(cp.id);
+
+    const nextStatus = action === 'archive' ? 'archived' : 'active';
+
+    const { error } = await supabase
+      .from('client_properties')
+      .update({
+        status: nextStatus,
+        archived_at: action === 'archive' ? new Date().toISOString() : null,
+      })
+      .eq('id', cp.id);
+
+    if (error) {
+      console.error('Archive toggle error:', error);
+      setArchiveError(error.message || 'Failed to update property status.');
+      setArchivingCpId(null);
+      return;
+    }
+
+    setClientProperties((prev) =>
+      prev.map((row) =>
+        row.id === cp.id
+          ? {
+              ...row,
+              status: nextStatus,
+              archived_at: action === 'archive' ? new Date().toISOString() : null,
+            }
+          : row
+      )
+    );
+
+    setArchivingCpId(null);
+  };
+
   const formatBudget = (min: number | null, max: number | null) => {
     if (min == null && max == null) return '-';
     const toMoney = (v: number | null) => (v == null ? '' : `$${v.toLocaleString()}`);
@@ -644,6 +706,17 @@ export default function ClientDetailPage() {
         return d < now;
       }),
     [tours, now]
+  );
+
+  // NEW: filter active vs archived for the table
+  const visibleClientProperties = useMemo(() => {
+    const isActive = (cp: ClientProperty) => (cp.status ?? 'active') !== 'archived';
+    return showArchivedProps ? clientProperties : clientProperties.filter(isActive);
+  }, [clientProperties, showArchivedProps]);
+
+  const archivedCount = useMemo(
+    () => clientProperties.filter((cp) => (cp.status ?? 'active') === 'archived').length,
+    [clientProperties]
   );
 
   return (
@@ -722,9 +795,7 @@ export default function ClientDetailPage() {
             </div>
 
             {client.notes && (
-              <p className="mt-1 text-sm text-slate-200 whitespace-pre-wrap border-t border-white/10 pt-3">
-                {client.notes}
-              </p>
+              <p className="mt-1 text-sm text-slate-200 whitespace-pre-wrap border-t border-white/10 pt-3">{client.notes}</p>
             )}
 
             {/* Portal access moved here */}
@@ -865,11 +936,30 @@ export default function ClientDetailPage() {
             </div>
           </Card>
 
-          {/* 3) Attached properties (READ-ONLY) */}
+          {/* 3) Attached properties (now supports archive/restore) */}
           <Card className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-white">Attached properties</h2>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Attached properties</h2>
+                <p className="text-[11px] text-slate-400">
+                  Archive removes a property from the client&apos;s view (feedback is kept).
+                </p>
+              </div>
+
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowArchivedProps((v) => !v)}
+                  className={[
+                    'inline-flex items-center rounded-full border px-3 py-1 text-xs transition whitespace-nowrap',
+                    showArchivedProps
+                      ? 'border-amber-300/30 bg-amber-500/10 text-amber-200'
+                      : 'border-white/15 bg-black/30 text-slate-200 hover:bg-white/10',
+                  ].join(' ')}
+                >
+                  {showArchivedProps ? 'Showing archived' : `Hide archived (${archivedCount})`}
+                </button>
+
                 <Link href="/properties/new">
                   <Button variant="secondary" className="text-xs px-3 py-1.5">
                     + Add new property
@@ -879,14 +969,17 @@ export default function ClientDetailPage() {
             </div>
 
             {propsError && <p className="text-sm text-red-300">Error loading properties: {propsError}</p>}
+            {archiveError && <p className="text-sm text-red-300">Archive error: {archiveError}</p>}
 
             {propsLoading && <p className="text-sm text-slate-300">Loading client properties…</p>}
 
-            {!propsLoading && clientProperties.length === 0 && (
-              <p className="text-sm text-slate-300">No properties attached yet.</p>
+            {!propsLoading && visibleClientProperties.length === 0 && (
+              <p className="text-sm text-slate-300">
+                {showArchivedProps ? 'No attached properties yet.' : 'No active properties attached yet.'}
+              </p>
             )}
 
-            {!propsLoading && clientProperties.length > 0 && (
+            {!propsLoading && visibleClientProperties.length > 0 && (
               <div className="overflow-x-auto rounded-lg border border-white/10 bg-black/40">
                 <table className="min-w-full text-xs sm:text-sm">
                   <thead className="bg-white/5 text-slate-300">
@@ -897,43 +990,90 @@ export default function ClientDetailPage() {
                       <th className="border-b border-white/10 px-2 py-1 text-left">Stage</th>
                       <th className="border-b border-white/10 px-2 py-1 text-left">Client feedback</th>
                       <th className="border-b border-white/10 px-2 py-1 text-right">Price</th>
+                      <th className="border-b border-white/10 px-2 py-1 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {clientProperties.map((cp) => (
-                      <tr key={cp.id} className="hover:bg-white/5 text-slate-100">
-                        <td className="border-b border-white/5 px-2 py-1">
-                          {cp.property ? (
-                            <Link href={`/properties/${cp.property.id}`} className="text-[#EBD27A] hover:underline">
-                              {cp.property.address}
-                            </Link>
-                          ) : (
-                            <span className="text-slate-500">(missing property)</span>
-                          )}
-                          {cp.property && (
-                            <div className="text-[11px] text-slate-400">
-                              {cp.property.city}, {cp.property.state}
-                              {cp.is_favorite ? ' • ★ favorite' : ''}
+                    {visibleClientProperties.map((cp) => {
+                      const status = (cp.status ?? 'active') as ClientPropertyStatus;
+                      const isArchived = status === 'archived';
+
+                      return (
+                        <tr
+                          key={cp.id}
+                          className={[
+                            'hover:bg-white/5 text-slate-100 align-top',
+                            isArchived ? 'opacity-75' : '',
+                          ].join(' ')}
+                        >
+                          <td className="border-b border-white/5 px-2 py-1">
+                            {cp.property ? (
+                              <Link href={`/properties/${cp.property.id}`} className="text-[#EBD27A] hover:underline">
+                                {cp.property.address}
+                              </Link>
+                            ) : (
+                              <span className="text-slate-500">(missing property)</span>
+                            )}
+
+                            {cp.property && (
+                              <div className="text-[11px] text-slate-400">
+                                {cp.property.city}, {cp.property.state}
+                                {cp.is_favorite ? ' • ★ favorite' : ''}
+                                {isArchived ? (
+                                  <span className="ml-2 inline-flex items-center rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[11px] text-slate-200">
+                                    archived
+                                  </span>
+                                ) : null}
+                              </div>
+                            )}
+
+                            {isArchived && cp.archived_at && (
+                              <div className="text-[11px] text-slate-500 mt-0.5">Archived: {formatDateTime(cp.archived_at)}</div>
+                            )}
+                          </td>
+
+                          <td className="border-b border-white/5 px-2 py-1">{cp.relationship || '-'}</td>
+                          <td className="border-b border-white/5 px-2 py-1">{cp.interest_level || '-'}</td>
+                          <td className="border-b border-white/5 px-2 py-1">{cp.property?.pipeline_stage || '-'}</td>
+
+                          <td className="border-b border-white/5 px-2 py-1 text-xs">
+                            {cp.client_rating != null && <div className="font-medium">Rating: {cp.client_rating}/5</div>}
+                            {cp.client_feedback && <div className="text-slate-100 whitespace-pre-wrap">{cp.client_feedback}</div>}
+                            {cp.client_rating == null && !cp.client_feedback && (
+                              <span className="text-slate-500">No feedback yet</span>
+                            )}
+                          </td>
+
+                          <td className="border-b border-white/5 px-2 py-1 text-right">
+                            {cp.property ? formatPrice(cp.property.list_price) : '-'}
+                          </td>
+
+                          <td className="border-b border-white/5 px-2 py-1 text-right">
+                            <div className="flex justify-end gap-2">
+                              {isArchived ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleArchiveToggle(cp, 'restore')}
+                                  disabled={archivingCpId === cp.id}
+                                  className="text-xs text-emerald-200 hover:text-emerald-100 hover:underline disabled:opacity-60"
+                                >
+                                  {archivingCpId === cp.id ? 'Restoring…' : 'Restore'}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleArchiveToggle(cp, 'archive')}
+                                  disabled={archivingCpId === cp.id}
+                                  className="text-xs text-red-300 hover:text-red-200 hover:underline disabled:opacity-60"
+                                >
+                                  {archivingCpId === cp.id ? 'Archiving…' : 'Archive'}
+                                </button>
+                              )}
                             </div>
-                          )}
-                        </td>
-                        <td className="border-b border-white/5 px-2 py-1">{cp.relationship || '-'}</td>
-                        <td className="border-b border-white/5 px-2 py-1">{cp.interest_level || '-'}</td>
-                        <td className="border-b border-white/5 px-2 py-1">{cp.property?.pipeline_stage || '-'}</td>
-                        <td className="border-b border-white/5 px-2 py-1 text-xs">
-                          {cp.client_rating != null && <div className="font-medium">Rating: {cp.client_rating}/5</div>}
-                          {cp.client_feedback && (
-                            <div className="text-slate-100 whitespace-pre-wrap">{cp.client_feedback}</div>
-                          )}
-                          {cp.client_rating == null && !cp.client_feedback && (
-                            <span className="text-slate-500">No feedback yet</span>
-                          )}
-                        </td>
-                        <td className="border-b border-white/5 px-2 py-1 text-right">
-                          {cp.property ? formatPrice(cp.property.list_price) : '-'}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -954,9 +1094,7 @@ export default function ClientDetailPage() {
             {toursError && <p className="text-sm text-red-300">Error loading tours: {toursError}</p>}
             {toursLoading && <p className="text-sm text-slate-300">Loading tours…</p>}
 
-            {!toursLoading && tours.length === 0 && (
-              <p className="text-sm text-slate-300">No tours scheduled yet for this client.</p>
-            )}
+            {!toursLoading && tours.length === 0 && <p className="text-sm text-slate-300">No tours scheduled yet for this client.</p>}
 
             {!toursLoading && tours.length > 0 && (
               <div className="space-y-3 text-sm">
@@ -973,7 +1111,9 @@ export default function ClientDetailPage() {
                             <Link href={`/tours/${t.id}`} className="font-medium text-[#EBD27A] hover:underline">
                               {t.title || 'Untitled tour'}
                             </Link>
-                            <div className="text-xs text-slate-400">{formatDateTime(t.start_time)} • {t.status || 'planned'}</div>
+                            <div className="text-xs text-slate-400">
+                              {formatDateTime(t.start_time)} • {t.status || 'planned'}
+                            </div>
                           </div>
                         </li>
                       ))}
@@ -994,7 +1134,9 @@ export default function ClientDetailPage() {
                             <Link href={`/tours/${t.id}`} className="font-medium text-[#EBD27A] hover:underline">
                               {t.title || 'Untitled tour'}
                             </Link>
-                            <div className="text-xs text-slate-400">{formatDateTime(t.start_time)} • {t.status || 'planned'}</div>
+                            <div className="text-xs text-slate-400">
+                              {formatDateTime(t.start_time)} • {t.status || 'planned'}
+                            </div>
                           </div>
                         </li>
                       ))}
@@ -1213,9 +1355,7 @@ export default function ClientDetailPage() {
             {notesLoading && <p className="text-sm text-slate-300">Loading notes…</p>}
             {notesError && <p className="text-sm text-red-300">Error loading notes: {notesError}</p>}
 
-            {!notesLoading && notes.length === 0 && (
-              <p className="text-sm text-slate-300">No notes yet. Add your first note above.</p>
-            )}
+            {!notesLoading && notes.length === 0 && <p className="text-sm text-slate-300">No notes yet. Add your first note above.</p>}
 
             {!notesLoading && notes.length > 0 && (
               <ul className="space-y-3 text-sm">
@@ -1236,3 +1376,4 @@ export default function ClientDetailPage() {
     </div>
   );
 }
+
