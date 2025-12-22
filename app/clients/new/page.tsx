@@ -73,7 +73,7 @@ export default function NewClientPage() {
   const [minBaths, setMinBaths] = useState('');
   const [dealStyle, setDealStyle] = useState<DealStyle>('either');
 
-  // Seller fields (stored in notes for now, since schema isn’t shown)
+  // Seller fields (stored in notes for now)
   const [sellerAddress, setSellerAddress] = useState('');
   const [sellerCity, setSellerCity] = useState('');
   const [sellerState, setSellerState] = useState('');
@@ -128,15 +128,10 @@ export default function NewClientPage() {
 
   const budgetMinNum = useMemo(() => toNumberOrNull(budgetMin), [budgetMin]);
   const budgetMaxNum = useMemo(() => toNumberOrNull(budgetMax), [budgetMax]);
-  const sellerTargetPriceNum = useMemo(
-    () => toNumberOrNull(sellerTargetPrice),
-    [sellerTargetPrice],
-  );
+  const sellerTargetPriceNum = useMemo(() => toNumberOrNull(sellerTargetPrice), [sellerTargetPrice]);
 
   const handleTogglePropertyType = (id: string) => {
-    setPropertyTypes((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
+    setPropertyTypes((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   const buildSellerNotesBlock = () => {
@@ -153,15 +148,12 @@ export default function NewClientPage() {
       .join(', ');
 
     if (addrLine) lines.push(`Listing Address: ${addrLine}`);
-    if (sellerTargetPriceNum != null) {
-      lines.push(`Target List Price: $${sellerTargetPriceNum.toLocaleString()}`);
-    }
+    if (sellerTargetPriceNum != null) lines.push(`Target List Price: $${sellerTargetPriceNum.toLocaleString()}`);
     push('Timeline', sellerTimeline);
     push('Seller goals', sellerGoals);
     push('Showing constraints', sellerShowings);
 
     if (lines.length === 0) return null;
-
     return `\n\n---\nSeller profile\n${lines.map((l) => `- ${l}`).join('\n')}\n`;
   };
 
@@ -191,9 +183,12 @@ export default function NewClientPage() {
     const prefLoc = isBuyer ? normalizeLocations(preferredLocations) : '';
 
     const sellerBlock = isSeller ? buildSellerNotesBlock() : null;
-    const mergedNotes =
-      (notes.trim() || '') + (sellerBlock ? sellerBlock : '');
+    const mergedNotes = (notes.trim() || '') + (sellerBlock ? sellerBlock : '');
     const finalNotes = mergedNotes.trim() ? mergedNotes.trim() : null;
+
+    // ✅ IMPORTANT: your DB column `clients.property_types` is NOT NULL.
+    // So we MUST always send a non-null value. Use [] when not applicable.
+    const propertyTypesValue = isBuyer ? propertyTypes : [];
 
     const { data: insertedClient, error: clientError } = await supabase
       .from('clients')
@@ -205,21 +200,18 @@ export default function NewClientPage() {
           client_type: clientType,
           stage,
 
-          // Buyer-only fields (null out when not applicable)
           budget_min: isBuyer ? budgetMinNum : null,
           budget_max: isBuyer ? budgetMaxNum : null,
           preferred_locations: isBuyer ? (prefLoc || null) : null,
 
-          // Notes (includes seller block)
           notes: finalNotes,
 
-          // Buyer matching signals (null out when not applicable)
-          property_types: isBuyer ? (propertyTypes.length ? propertyTypes : null) : null,
+          // ✅ send [] instead of null so NOT NULL constraint is satisfied
+          property_types: propertyTypesValue,
           min_beds: isBuyer ? toNumberOrNull(minBeds) : null,
           min_baths: isBuyer ? toNumberOrNull(minBaths) : null,
           deal_style: isBuyer ? (dealStyle || null) : null,
 
-          // IMPORTANT for scoping
           brokerage_id: agentMeta.brokerage_id,
           agent_id: agentMeta.agent_id,
         },
@@ -236,7 +228,6 @@ export default function NewClientPage() {
 
     const newClientId = insertedClient.id as string;
 
-    // 2) Optionally link to an EXISTING portal user (non-blocking)
     if (preparePortal && trimmedEmail) {
       const { data: existingPortal, error: portalLookupError } = await supabase
         .from('client_portal_users')
@@ -244,9 +235,7 @@ export default function NewClientPage() {
         .eq('email', lowerEmail)
         .maybeSingle();
 
-      if (portalLookupError) {
-        console.error('Error looking up portal user:', portalLookupError);
-      }
+      if (portalLookupError) console.error('Error looking up portal user:', portalLookupError);
 
       const portalUserId = existingPortal?.id as string | undefined;
 
@@ -254,17 +243,11 @@ export default function NewClientPage() {
         const { error: linkError } = await supabase
           .from('client_portal_access')
           .upsert(
-            {
-              portal_user_id: portalUserId,
-              client_id: newClientId,
-              role: 'primary',
-            },
+            { portal_user_id: portalUserId, client_id: newClientId, role: 'primary' },
             { onConflict: 'portal_user_id,client_id' },
           );
 
-        if (linkError) {
-          console.error('Error linking portal user to client:', linkError);
-        }
+        if (linkError) console.error('Error linking portal user to client:', linkError);
       }
     }
 
@@ -275,9 +258,7 @@ export default function NewClientPage() {
     <div className="max-w-2xl space-y-4">
       <header className="flex items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
-            Add Client
-          </h1>
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">Add Client</h1>
           <p className="text-sm text-slate-300">
             Create a buyer or seller profile. Buyer fields and seller fields adapt based on type.
           </p>
@@ -308,9 +289,7 @@ export default function NewClientPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-sm font-medium mb-1 text-slate-100">
-                Type
-              </label>
+              <label className="block text-sm font-medium mb-1 text-slate-100">Type</label>
               <select
                 value={clientType}
                 onChange={(e) => setClientType(e.target.value as any)}
@@ -322,20 +301,10 @@ export default function NewClientPage() {
                   </option>
                 ))}
               </select>
-
-              <p className="mt-1 text-[11px] text-slate-400">
-                {clientType === 'seller'
-                  ? 'Seller view: listing + pricing + timeline.'
-                  : clientType === 'both'
-                  ? 'Both: buyer criteria + seller listing.'
-                  : 'Buyer view: matching signals + budget + locations.'}
-              </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-slate-100">
-                Stage
-              </label>
+              <label className="block text-sm font-medium mb-1 text-slate-100">Stage</label>
               <select
                 value={stage}
                 onChange={(e) => setStage(e.target.value as any)}
@@ -350,9 +319,7 @@ export default function NewClientPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1 text-slate-100">
-                Phone
-              </label>
+              <label className="block text-sm font-medium mb-1 text-slate-100">Phone</label>
               <input
                 type="tel"
                 value={phone}
@@ -364,9 +331,7 @@ export default function NewClientPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1 text-slate-100">
-              Email
-            </label>
+            <label className="block text-sm font-medium mb-1 text-slate-100">Email</label>
             <input
               type="email"
               value={email}
@@ -384,35 +349,19 @@ export default function NewClientPage() {
               />
               <label htmlFor="prepare-portal" className="leading-snug">
                 If a client portal account already exists for this email, link this client to it automatically. Otherwise,
-                they&apos;ll be linked once they sign in at{' '}
-                <code className="text-[10px]">/portal</code>.
+                they&apos;ll be linked once they sign in at <code className="text-[10px]">/portal</code>.
               </label>
             </div>
           </div>
 
-          {/* Buyer section */}
-          {isBuyer && (
+          {/* Buyer fields */}
+          {(clientType === 'buyer' || clientType === 'both') && (
             <>
-              {/* Matching signals */}
               <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-100">
-                      Buyer matching signals
-                    </div>
-                    <div className="text-xs text-slate-300">
-                      Used for ranking recommendations and matches.
-                    </div>
-                  </div>
-                  <div className="text-[11px] text-slate-400">
-                    {agentMeta.brokerage_id ? 'Brokerage linked' : 'No brokerage_id'}
-                  </div>
-                </div>
+                <div className="text-sm font-semibold text-slate-100">Buyer matching signals</div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-2 text-slate-100">
-                    Property types
-                  </label>
+                  <label className="block text-sm font-medium mb-2 text-slate-100">Property types</label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {PROPERTY_TYPE_OPTIONS.map((opt) => {
                       const checked = propertyTypes.includes(opt.id);
@@ -441,9 +390,7 @@ export default function NewClientPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-sm font-medium mb-1 text-slate-100">
-                      Min Beds
-                    </label>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">Min Beds</label>
                     <input
                       type="text"
                       value={minBeds}
@@ -453,9 +400,7 @@ export default function NewClientPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1 text-slate-100">
-                      Min Baths
-                    </label>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">Min Baths</label>
                     <input
                       type="text"
                       value={minBaths}
@@ -465,9 +410,7 @@ export default function NewClientPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1 text-slate-100">
-                      Deal Style
-                    </label>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">Deal Style</label>
                     <select
                       value={dealStyle}
                       onChange={(e) => setDealStyle(e.target.value as DealStyle)}
@@ -484,15 +427,11 @@ export default function NewClientPage() {
               </div>
 
               <div className="rounded-xl border border-white/10 bg-black/30 p-3 space-y-3">
-                <div className="text-sm font-semibold text-slate-100">
-                  Buyer search constraints
-                </div>
+                <div className="text-sm font-semibold text-slate-100">Buyer search constraints</div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium mb-1 text-slate-100">
-                      Budget Min
-                    </label>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">Budget Min</label>
                     <input
                       type="text"
                       inputMode="numeric"
@@ -503,9 +442,7 @@ export default function NewClientPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1 text-slate-100">
-                      Budget Max
-                    </label>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">Budget Max</label>
                     <input
                       type="text"
                       inputMode="numeric"
@@ -518,9 +455,7 @@ export default function NewClientPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-100">
-                    Preferred Locations
-                  </label>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">Preferred Locations</label>
                   <input
                     type="text"
                     value={preferredLocations}
@@ -536,25 +471,17 @@ export default function NewClientPage() {
             </>
           )}
 
-          {/* Seller section (notes-backed for now) */}
-          {isSeller && (
+          {/* Seller fields */}
+          {(clientType === 'seller' || clientType === 'both') && (
             <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <div className="text-sm font-semibold text-slate-100">
-                    Seller details
-                  </div>
-                  <div className="text-xs text-slate-300">
-                    Stored in notes for now (until we add seller columns / a listing link).
-                  </div>
-                </div>
+              <div className="text-sm font-semibold text-slate-100">Seller details</div>
+              <div className="text-xs text-slate-300">
+                Stored in notes for now (until we add seller columns / listing link).
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium mb-1 text-slate-100">
-                    Listing address
-                  </label>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">Listing address</label>
                   <input
                     type="text"
                     value={sellerAddress}
@@ -565,9 +492,7 @@ export default function NewClientPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-100">
-                    Target list price
-                  </label>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">Target list price</label>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -581,9 +506,7 @@ export default function NewClientPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-100">
-                    City
-                  </label>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">City</label>
                   <input
                     type="text"
                     value={sellerCity}
@@ -593,9 +516,7 @@ export default function NewClientPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-100">
-                    State
-                  </label>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">State</label>
                   <input
                     type="text"
                     value={sellerState}
@@ -605,9 +526,7 @@ export default function NewClientPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-slate-100">
-                    Timeline
-                  </label>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">Timeline</label>
                   <input
                     type="text"
                     value={sellerTimeline}
@@ -619,9 +538,7 @@ export default function NewClientPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-100">
-                  Seller goals
-                </label>
+                <label className="block text-sm font-medium mb-1 text-slate-100">Seller goals</label>
                 <input
                   type="text"
                   value={sellerGoals}
@@ -632,9 +549,7 @@ export default function NewClientPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1 text-slate-100">
-                  Showing constraints
-                </label>
+                <label className="block text-sm font-medium mb-1 text-slate-100">Showing constraints</label>
                 <input
                   type="text"
                   value={sellerShowings}
@@ -644,16 +559,14 @@ export default function NewClientPage() {
                 />
               </div>
 
-              <div className="text-[11px] text-slate-400">
-                Next step: we can add real seller columns (or link a seller to a Property record) so this becomes structured.
-              </div>
+              <p className="text-[11px] text-slate-400">
+                These will be appended to Notes on save.
+              </p>
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium mb-1 text-slate-100">
-              Internal Notes
-            </label>
+            <label className="block text-sm font-medium mb-1 text-slate-100">Internal Notes</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -661,11 +574,6 @@ export default function NewClientPage() {
               rows={3}
               placeholder="How you met, context, quirks, etc."
             />
-            {isSeller && (
-              <p className="mt-1 text-[11px] text-slate-400">
-                Seller details above will be appended to notes automatically on save.
-              </p>
-            )}
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between pt-2">
@@ -673,12 +581,7 @@ export default function NewClientPage() {
               {saving ? 'Saving…' : 'Save Client'}
             </Button>
 
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full sm:w-auto"
-              onClick={() => router.push('/clients')}
-            >
+            <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={() => router.push('/clients')}>
               Cancel
             </Button>
           </div>
@@ -687,6 +590,7 @@ export default function NewClientPage() {
     </div>
   );
 }
+
 
 
 
