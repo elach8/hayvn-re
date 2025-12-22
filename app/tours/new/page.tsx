@@ -2,8 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 type Client = {
@@ -22,6 +21,8 @@ type Property = {
 
 export default function NewTourPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const preselectClientId = (searchParams.get('clientId') || '').trim();
 
   const [clients, setClients] = useState<Client[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
@@ -55,6 +56,7 @@ export default function NewTourPage() {
         supabase
           .from('properties')
           .select('id, address, city, state, list_price')
+          .is('archived_at', null) // ✅ only non-archived properties
           .order('created_at', { ascending: false })
           .limit(200),
       ]);
@@ -62,8 +64,18 @@ export default function NewTourPage() {
       if (clientsRes.error) {
         console.error('Error loading clients:', clientsRes.error);
         setLookupError(clientsRes.error.message);
+        setClients([]);
       } else {
-        setClients((clientsRes.data || []) as Client[]);
+        const loadedClients = (clientsRes.data || []) as Client[];
+        setClients(loadedClients);
+
+        // ✅ auto-select client when arriving from clients/[id]
+        if (
+          preselectClientId &&
+          loadedClients.some((c) => c.id === preselectClientId)
+        ) {
+          setClientId(preselectClientId);
+        }
       }
 
       if (propertiesRes.error) {
@@ -74,6 +86,7 @@ export default function NewTourPage() {
             propertiesRes.error?.message ||
             'Error loading properties',
         );
+        setProperties([]);
       } else {
         setProperties((propertiesRes.data || []) as Property[]);
       }
@@ -82,7 +95,7 @@ export default function NewTourPage() {
     };
 
     loadLookups();
-  }, []);
+  }, [preselectClientId]);
 
   const togglePropertySelection = (id: string) => {
     setSelectedPropertyIds((prev) =>
@@ -95,6 +108,16 @@ export default function NewTourPage() {
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return null;
     return d.toISOString();
+  };
+
+  const handleBack = () => {
+    // ✅ "Back" behavior (most commonly from clients/[id])
+    // Fallback to /tours if opened in a fresh tab with no history.
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push('/tours');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -164,8 +187,7 @@ export default function NewTourPage() {
     if (stopsError) {
       console.error('Error attaching tour properties:', stopsError);
       setSaveError(
-        'Tour created, but error attaching properties: ' +
-          stopsError.message,
+        'Tour created, but error attaching properties: ' + stopsError.message,
       );
       setSaving(false);
       router.push('/tours');
@@ -189,12 +211,15 @@ export default function NewTourPage() {
             visit.
           </p>
         </div>
-        <Link
-          href="/tours"
+
+        {/* ✅ Back link (history back, not hardcoded to /tours) */}
+        <button
+          type="button"
+          onClick={handleBack}
           className="text-sm text-slate-300 hover:text-white hover:underline"
         >
-          ← Back to Tours
-        </Link>
+          ← Back
+        </button>
       </header>
 
       {loadingLookups && (
@@ -211,9 +236,7 @@ export default function NewTourPage() {
         onSubmit={handleSubmit}
         className="space-y-5 border border-white/10 rounded-xl bg-black/40 backdrop-blur-sm p-4 sm:p-5"
       >
-        {saveError && (
-          <p className="text-sm text-red-300">{saveError}</p>
-        )}
+        {saveError && <p className="text-sm text-red-300">{saveError}</p>}
 
         {/* Client + basic info */}
         <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -320,8 +343,8 @@ export default function NewTourPage() {
 
           {properties.length === 0 && (
             <p className="text-sm text-slate-400">
-              No properties in the system yet. Add some in the Properties
-              section first.
+              No active properties in the system yet. Add some in the Properties
+              section first (or unarchive if needed).
             </p>
           )}
 
@@ -346,8 +369,7 @@ export default function NewTourPage() {
                       </div>
                       <div className="text-xs text-slate-400">
                         {p.city}, {p.state}{' '}
-                        {p.list_price != null &&
-                          `• ${formatPrice(p.list_price)}`}
+                        {p.list_price != null && `• ${formatPrice(p.list_price)}`}
                       </div>
                     </div>
                   </label>
@@ -376,3 +398,4 @@ export default function NewTourPage() {
     </main>
   );
 }
+
