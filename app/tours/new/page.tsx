@@ -1,7 +1,7 @@
 // app/tours/new/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -19,7 +19,7 @@ type Property = {
   list_price: number | null;
 };
 
-export default function NewTourPage() {
+function NewTourInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preselectClientId = (searchParams.get('clientId') || '').trim();
@@ -56,7 +56,7 @@ export default function NewTourPage() {
         supabase
           .from('properties')
           .select('id, address, city, state, list_price')
-          .is('archived_at', null) // ✅ only non-archived properties
+          .is('archived_at', null) // ✅ only non-archived
           .order('created_at', { ascending: false })
           .limit(200),
       ]);
@@ -111,8 +111,6 @@ export default function NewTourPage() {
   };
 
   const handleBack = () => {
-    // ✅ "Back" behavior (most commonly from clients/[id])
-    // Fallback to /tours if opened in a fresh tab with no history.
     if (typeof window !== 'undefined' && window.history.length > 1) {
       router.back();
       return;
@@ -212,7 +210,6 @@ export default function NewTourPage() {
           </p>
         </div>
 
-        {/* ✅ Back link (history back, not hardcoded to /tours) */}
         <button
           type="button"
           onClick={handleBack}
@@ -369,7 +366,8 @@ export default function NewTourPage() {
                       </div>
                       <div className="text-xs text-slate-400">
                         {p.city}, {p.state}{' '}
-                        {p.list_price != null && `• ${formatPrice(p.list_price)}`}
+                        {p.list_price != null &&
+                          `• ${formatPrice(p.list_price)}`}
                       </div>
                     </div>
                   </label>
@@ -398,4 +396,21 @@ export default function NewTourPage() {
     </main>
   );
 }
+
+export default function NewTourPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen max-w-3xl mx-auto px-4 sm:px-6 pb-8 text-slate-100">
+          <p className="text-sm text-slate-300 pt-6">
+            Loading tour form…
+          </p>
+        </main>
+      }
+    >
+      <NewTourInner />
+    </Suspense>
+  );
+}
+
 
