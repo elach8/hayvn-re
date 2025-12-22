@@ -1,7 +1,7 @@
 // app/tours/new/page.tsx
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -23,6 +23,15 @@ function NewTourInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const preselectClientId = (searchParams.get('clientId') || '').trim();
+
+  const startRef = useRef<HTMLInputElement | null>(null);
+  const endRef = useRef<HTMLInputElement | null>(null);
+
+  const openPicker = (ref: React.RefObject<HTMLInputElement | null>) => {
+    const el = ref.current as any;
+    if (!el) return;
+    if (typeof el.showPicker === 'function') el.showPicker();
+  };
 
   const [clients, setClients] = useState<Client[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
@@ -82,7 +91,7 @@ function NewTourInner() {
     loadClients();
   }, [preselectClientId]);
 
-  // 2) Load properties *for selected client* only (non-archived)
+  // 2) Load properties *for selected client* only (non-archived per client_properties)
   useEffect(() => {
     const loadClientActiveProperties = async () => {
       setLookupError(null);
@@ -93,7 +102,6 @@ function NewTourInner() {
 
       setLoadingProps(true);
 
-      // Pull from client_properties so we can filter archived_at/status correctly
       const { data, error } = await supabase
         .from('client_properties')
         .select(
@@ -108,11 +116,11 @@ function NewTourInner() {
             state,
             list_price
           )
-        `
+        `,
         )
         .eq('client_id', clientId)
-        .is('archived_at', null) // ✅ NOT archived for this client
-        .neq('status', 'archived') // ✅ extra safety
+        .is('archived_at', null)
+        .neq('status', 'archived')
         .order('created_at', { ascending: false })
         .limit(500);
 
@@ -141,7 +149,10 @@ function NewTourInner() {
     loadClientActiveProperties();
   }, [clientId]);
 
-  const loadingLookups = useMemo(() => loadingClients || loadingProps, [loadingClients, loadingProps]);
+  const loadingLookups = useMemo(
+    () => loadingClients || loadingProps,
+    [loadingClients, loadingProps],
+  );
 
   const togglePropertySelection = (id: string) => {
     setSelectedPropertyIds((prev) =>
@@ -157,7 +168,6 @@ function NewTourInner() {
   };
 
   const handleBack = () => {
-    // ✅ History back, with fallback if opened in new tab
     if (typeof window !== 'undefined' && window.history.length > 1) {
       router.back();
       return;
@@ -335,9 +345,12 @@ function NewTourInner() {
                 Start Time *
               </label>
               <input
+                ref={startRef}
                 type="datetime-local"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
+                onFocus={() => openPicker(startRef)}
+                onClick={() => openPicker(startRef)}
                 className="w-full border border-white/10 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
               />
             </div>
@@ -346,9 +359,12 @@ function NewTourInner() {
                 End Time (optional)
               </label>
               <input
+                ref={endRef}
                 type="datetime-local"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
+                onFocus={() => openPicker(endRef)}
+                onClick={() => openPicker(endRef)}
                 className="w-full border border-white/10 bg-black/40 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#EBD27A] focus:border-[#EBD27A]"
               />
             </div>
