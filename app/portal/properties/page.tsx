@@ -39,6 +39,11 @@ type ClientProperty = {
   client_feedback: string | null;
   client_rating: number | null;
 
+  // ✅ archive support (one of these likely exists in your schema)
+  archived_at?: string | null;
+  status?: string | null;
+  is_archived?: boolean | null;
+
   property: Property | null;
   client: ClientInfo | null;
 };
@@ -83,14 +88,19 @@ export default function PortalPropertiesPage() {
       const email = (user.email || '').toLowerCase().trim();
 
       if (!email) {
-        setAuthError('We could not determine your email address. Please contact your agent.');
+        setAuthError(
+          'We could not determine your email address. Please contact your agent.'
+        );
         setLoading(false);
         return;
       }
 
       const pu: PortalUser = {
         id: user.id,
-        full_name: (user.user_metadata as any)?.full_name || (user.user_metadata as any)?.name || null,
+        full_name:
+          (user.user_metadata as any)?.full_name ||
+          (user.user_metadata as any)?.name ||
+          null,
         email: (user.email ?? null) as string | null,
       };
       setPortalUser(pu);
@@ -126,6 +136,7 @@ export default function PortalPropertiesPage() {
       for (const c of clients) clientById.set(c.id, c);
 
       // 3) Load client_properties joined to properties
+      // ✅ SURGICAL CHANGE: pull archive fields too (whichever exists in schema)
       const { data: cpRows, error: cpError } = await supabase
         .from('client_properties')
         .select(
@@ -138,6 +149,9 @@ export default function PortalPropertiesPage() {
           is_favorite,
           client_feedback,
           client_rating,
+          archived_at,
+          status,
+          is_archived,
           properties (
             id,
             address,
@@ -159,7 +173,7 @@ export default function PortalPropertiesPage() {
         return;
       }
 
-      const mapped: ClientProperty[] = (cpRows || []).map((row: any) => {
+      const mappedAll: ClientProperty[] = (cpRows || []).map((row: any) => {
         const cid = row.client_id as string;
         const clientInfo = clientById.get(cid) || null;
 
@@ -183,23 +197,42 @@ export default function PortalPropertiesPage() {
           interest_level: (row.interest_level as string | null) ?? null,
           is_favorite: !!row.is_favorite,
           client_feedback: (row.client_feedback as string | null) ?? null,
-          client_rating: typeof row.client_rating === 'number' ? (row.client_rating as number) : null,
+          client_rating:
+            typeof row.client_rating === 'number'
+              ? (row.client_rating as number)
+              : null,
+
+          // ✅ archive fields (if present)
+          archived_at: (row.archived_at as string | null) ?? null,
+          status: (row.status as string | null) ?? null,
+          is_archived: typeof row.is_archived === 'boolean' ? (row.is_archived as boolean) : null,
+
           property: prop,
           client: clientInfo,
         };
       });
 
-      // ✅ Filter out archived properties so clients don't see them
-      // (If property is missing/null, we keep it; only exclude when pipeline_stage === 'archived')
-      const filtered = mapped.filter((cp) => cp.property?.pipeline_stage !== 'archived');
+      // ✅ SURGICAL CHANGE: filter out archived
+      // Supports any of these patterns:
+      // - archived_at not null
+      // - status === 'archived'
+      // - is_archived === true
+      const mapped = mappedAll.filter((cp) => {
+        const status = (cp.status ?? '').toLowerCase().trim();
+        const isArchived =
+          (cp.archived_at != null && String(cp.archived_at).length > 0) ||
+          status === 'archived' ||
+          cp.is_archived === true;
+        return !isArchived;
+      });
 
-      setClientProperties(filtered);
+      setClientProperties(mapped);
 
-      // Seed local editable state (only for visible rows)
+      // Seed local editable state (only for visible, non-archived rows)
       const fb: Record<string, string> = {};
       const rt: Record<string, number | ''> = {};
       const fav: Record<string, boolean> = {};
-      for (const cp of filtered) {
+      for (const cp of mapped) {
         fb[cp.id] = cp.client_feedback ?? '';
         rt[cp.id] = cp.client_rating ?? '';
         fav[cp.id] = cp.is_favorite;
@@ -214,12 +247,13 @@ export default function PortalPropertiesPage() {
     load();
   }, []);
 
-  const formatPrice = (v: number | null) => (v == null ? '-' : `$${v.toLocaleString()}`);
+  const formatPrice = (v: number | null) =>
+    v == null ? '-' : `$${v.toLocaleString()}`;
 
   const isReviewed = (cp: ClientProperty) => {
     const fb = (feedbackById[cp.id] ?? cp.client_feedback ?? '').trim();
     const r = ratingById[cp.id] ?? cp.client_rating ?? '';
-    return fb.length > 0 || ((r !== '' && r != null) as any);
+    return fb.length > 0 || (r !== '' && r != null);
   };
 
   // Review-queue ordering: unreviewed first, then favorites, then newest
@@ -242,7 +276,10 @@ export default function PortalPropertiesPage() {
   }, [clientProperties, feedbackById, ratingById, favoriteById]);
 
   const groupedByClient = useMemo(() => {
-    const map = new Map<string, { client: ClientInfo | null; items: ClientProperty[] }>();
+    const map = new Map<
+      string,
+      { client: ClientInfo | null; items: ClientProperty[] }
+    >();
 
     for (const cp of ordered) {
       const key = cp.client_id;
@@ -260,7 +297,8 @@ export default function PortalPropertiesPage() {
 
     const feedback = (feedbackById[cp.id] ?? '').trim();
     const rawRating = ratingById[cp.id];
-    const rating = rawRating === '' || rawRating == null ? null : Number(rawRating);
+    const rating =
+      rawRating === '' || rawRating == null ? null : Number(rawRating);
     const is_favorite = !!favoriteById[cp.id];
 
     if (rating != null && (rating < 1 || rating > 5)) {
@@ -309,12 +347,17 @@ export default function PortalPropertiesPage() {
         {/* Header */}
         <header className="flex items-center justify-between gap-2">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-50">Review queue</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-50">
+              Review queue
+            </h1>
             <p className="text-sm text-slate-300 max-w-xl">
               Homes your agent shared with you. Unreviewed homes show first.
             </p>
           </div>
-          <Link href="/portal" className="text-sm text-slate-400 hover:text-slate-200 hover:underline">
+          <Link
+            href="/portal"
+            className="text-sm text-slate-400 hover:text-slate-200 hover:underline"
+          >
             ← Back to portal
           </Link>
         </header>
@@ -322,7 +365,10 @@ export default function PortalPropertiesPage() {
         {portalUser && (
           <p className="text-xs text-slate-400">
             Signed in as{' '}
-            <span className="font-medium text-slate-100">{portalUser.full_name || portalUser.email}</span>.
+            <span className="font-medium text-slate-100">
+              {portalUser.full_name || portalUser.email}
+            </span>
+            .
           </p>
         )}
 
@@ -331,12 +377,15 @@ export default function PortalPropertiesPage() {
         {saveError && <p className="text-sm text-red-300">{saveError}</p>}
         {saveSuccess && <p className="text-sm text-emerald-300">{saveSuccess}</p>}
 
-        {!authError && loading && <p className="text-sm text-slate-300">Loading your homes…</p>}
+        {!authError && loading && (
+          <p className="text-sm text-slate-300">Loading your homes…</p>
+        )}
 
         {!loading && !authError && !loadError && clientProperties.length === 0 && (
           <div className="mt-3 rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
             <p className="text-sm text-slate-300">
-              You don&apos;t have any homes yet. When your agent links homes to your profile, they&apos;ll show up here.
+              You don&apos;t have any homes yet. When your agent links homes to your
+              profile, they&apos;ll show up here.
             </p>
           </div>
         )}
@@ -350,7 +399,9 @@ export default function PortalPropertiesPage() {
               >
                 <header className="mb-3 flex items-center justify-between gap-2">
                   <div>
-                    <h2 className="text-base font-semibold text-slate-50">{client?.name || 'Home journey'}</h2>
+                    <h2 className="text-base font-semibold text-slate-50">
+                      {client?.name || 'Home journey'}
+                    </h2>
                     <p className="text-xs text-slate-400">
                       {client?.client_type === 'buyer'
                         ? 'Buying journey'
@@ -360,7 +411,9 @@ export default function PortalPropertiesPage() {
                       {client?.stage ? ` • ${client.stage}` : ''}
                     </p>
                   </div>
-                  <div className="text-[11px] text-slate-400">{items.filter((x) => !isReviewed(x)).length} unreviewed</div>
+                  <div className="text-[11px] text-slate-400">
+                    {items.filter((x) => !isReviewed(x)).length} unreviewed
+                  </div>
                 </header>
 
                 <ul className="space-y-3 text-sm">
@@ -380,7 +433,10 @@ export default function PortalPropertiesPage() {
                           <div className="min-w-0">
                             <div className="font-semibold text-slate-50 truncate">
                               {p ? (
-                                <Link href={`/portal/properties/${cp.id}`} className="text-[#EBD27A] hover:underline">
+                                <Link
+                                  href={`/portal/properties/${cp.id}`}
+                                  className="text-[#EBD27A] hover:underline"
+                                >
                                   {p.address}
                                 </Link>
                               ) : (
@@ -406,7 +462,11 @@ export default function PortalPropertiesPage() {
                           </div>
 
                           <div className="text-right text-xs shrink-0">
-                            {p && <div className="text-slate-50 font-medium">{formatPrice(p.list_price)}</div>}
+                            {p && (
+                              <div className="text-slate-50 font-medium">
+                                {formatPrice(p.list_price)}
+                              </div>
+                            )}
 
                             <div className="flex items-center justify-end gap-2 mt-1">
                               <button
@@ -458,13 +518,18 @@ export default function PortalPropertiesPage() {
 
                           <div className="space-y-2">
                             <div>
-                              <label className="block text-xs font-medium mb-1 text-slate-200">Rating</label>
+                              <label className="block text-xs font-medium mb-1 text-slate-200">
+                                Rating
+                              </label>
                               <select
                                 value={ratingById[cp.id] ?? ''}
                                 onChange={(e) =>
                                   setRatingById((prev) => ({
                                     ...prev,
-                                    [cp.id]: e.target.value === '' ? '' : Number(e.target.value),
+                                    [cp.id]:
+                                      e.target.value === ''
+                                        ? ''
+                                        : Number(e.target.value),
                                   }))
                                 }
                                 className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
@@ -487,7 +552,11 @@ export default function PortalPropertiesPage() {
                               {savingId === cp.id ? 'Saving…' : 'Save feedback'}
                             </button>
 
-                            {!reviewed && <div className="text-[11px] text-[#EBD27A]">Unreviewed</div>}
+                            {!reviewed && (
+                              <div className="text-[11px] text-[#EBD27A]">
+                                Unreviewed
+                              </div>
+                            )}
                           </div>
                         </div>
                       </li>
@@ -502,3 +571,4 @@ export default function PortalPropertiesPage() {
     </main>
   );
 }
+
