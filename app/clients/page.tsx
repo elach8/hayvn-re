@@ -17,7 +17,11 @@ type Client = {
   budget_min: number | null;
   budget_max: number | null;
   preferred_locations: string | null;
+
+  seller_target_min: number | null;
+  seller_target_max: number | null;
 };
+
 
 type PendingMeta = {
   pendingCount: number;
@@ -37,6 +41,15 @@ function formatBudget(min: number | null, max: number | null) {
   if (min != null) return `${toMoney(min)}+`;
   return `up to ${toMoney(max)}`;
 }
+
+function formatRange(min: number | null, max: number | null) {
+  if (min == null && max == null) return '-';
+  const toMoney = (v: number | null) => (v == null ? '' : `$${v.toLocaleString()}`);
+  if (min != null && max != null) return `${toMoney(min)} – ${toMoney(max)}`;
+  if (min != null) return `${toMoney(min)}+`;
+  return `up to ${toMoney(max)}`;
+}
+
 
 function normalizeClientType(v: string | null): 'buyer' | 'seller' | 'both' | 'unknown' {
   const t = (v || '').toLowerCase().trim();
@@ -72,18 +85,21 @@ export default function ClientsPage() {
         .from('clients')
         .select(
           `
-          id,
-          name,
-          email,
-          phone,
-          client_type,
-          stage,
-          budget_min,
-          budget_max,
-          preferred_locations
-        `,
+            id,
+            name,
+            email,
+            phone,
+            client_type,
+            stage,
+            budget_min,
+            budget_max,
+            preferred_locations,
+            seller_target_min,
+            seller_target_max
+          `,
         )
-        .order('created_at', { ascending: false });
+  .order('created_at', { ascending: false });
+
 
       if (error) {
         console.error('Error loading clients:', error);
@@ -355,6 +371,8 @@ export default function ClientsPage() {
                   <th className="px-3 py-2 text-left border-b border-white/10">Type</th>
                   <th className="px-3 py-2 text-left border-b border-white/10">Stage</th>
                   <th className="px-3 py-2 text-left border-b border-white/10">Budget</th>
+                  <th className="px-3 py-2 text-left border-b border-white/10">Target Price</th>
+
                   <th className="px-3 py-2 text-left border-b border-white/10 hidden md:table-cell">
                     Preferred locations
                   </th>
@@ -427,6 +445,17 @@ export default function ClientsPage() {
                       <td className="px-3 py-2 border-b border-white/5 align-top">
                         <span className="text-sm text-slate-100">{formatBudget(c.budget_min, c.budget_max)}</span>
                       </td>
+
+                      <td className="px-3 py-2 border-b border-white/5 align-top">
+                      {c.client_type === 'seller' || c.client_type === 'both' ? (
+                          <span className="text-sm text-slate-100">
+                            {formatBudget(c.seller_target_min, c.seller_target_max)}
+                          </span>
+                        ) : (
+                        <span className="text-xs text-slate-500">—</span>
+                        )}
+                      </td>
+
 
                       <td className="px-3 py-2 border-b border-white/5 align-top hidden md:table-cell">
                         {c.preferred_locations ? (
