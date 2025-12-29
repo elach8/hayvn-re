@@ -18,10 +18,9 @@ type Client = {
   budget_max: number | null;
   preferred_locations: string | null;
 
-  seller_target_min: number | null;
-  seller_target_max: number | null;
+  // ✅ updated schema (single seller target)
+  seller_target: number | null;
 };
-
 
 type PendingMeta = {
   pendingCount: number;
@@ -41,15 +40,6 @@ function formatBudget(min: number | null, max: number | null) {
   if (min != null) return `${toMoney(min)}+`;
   return `up to ${toMoney(max)}`;
 }
-
-function formatRange(min: number | null, max: number | null) {
-  if (min == null && max == null) return '-';
-  const toMoney = (v: number | null) => (v == null ? '' : `$${v.toLocaleString()}`);
-  if (min != null && max != null) return `${toMoney(min)} – ${toMoney(max)}`;
-  if (min != null) return `${toMoney(min)}+`;
-  return `up to ${toMoney(max)}`;
-}
-
 
 function normalizeClientType(v: string | null): 'buyer' | 'seller' | 'both' | 'unknown' {
   const t = (v || '').toLowerCase().trim();
@@ -94,12 +84,10 @@ export default function ClientsPage() {
             budget_min,
             budget_max,
             preferred_locations,
-            seller_target_min,
-            seller_target_max
+            seller_target
           `,
         )
-  .order('created_at', { ascending: false });
-
+        .order('created_at', { ascending: false });
 
       if (error) {
         console.error('Error loading clients:', error);
@@ -372,7 +360,6 @@ export default function ClientsPage() {
                   <th className="px-3 py-2 text-left border-b border-white/10">Stage</th>
                   <th className="px-3 py-2 text-left border-b border-white/10">Budget</th>
                   <th className="px-3 py-2 text-left border-b border-white/10">Target Price</th>
-
                   <th className="px-3 py-2 text-left border-b border-white/10 hidden md:table-cell">
                     Preferred locations
                   </th>
@@ -447,15 +434,16 @@ export default function ClientsPage() {
                       </td>
 
                       <td className="px-3 py-2 border-b border-white/5 align-top">
-                      {c.client_type === 'seller' || c.client_type === 'both' ? (
-                          <span className="text-sm text-slate-100">
-                            {formatBudget(c.seller_target_min, c.seller_target_max)}
-                          </span>
+                        {ct === 'seller' || ct === 'both' ? (
+                          c.seller_target != null ? (
+                            <span className="text-sm text-slate-100">${c.seller_target.toLocaleString()}</span>
+                          ) : (
+                            <span className="text-xs text-slate-500">—</span>
+                          )
                         ) : (
-                        <span className="text-xs text-slate-500">—</span>
+                          <span className="text-xs text-slate-500">—</span>
                         )}
                       </td>
-
 
                       <td className="px-3 py-2 border-b border-white/5 align-top hidden md:table-cell">
                         {c.preferred_locations ? (
@@ -515,12 +503,15 @@ function FilterPill({
       onClick={onClick}
       className={[
         'px-3 py-1 rounded-full border text-xs transition whitespace-nowrap',
-        active ? 'bg-white/20 text-white border-white/40 shadow-sm' : 'bg-black/30 text-slate-200 border-white/15 hover:bg-white/10',
+        active
+          ? 'bg-white/20 text-white border-white/40 shadow-sm'
+          : 'bg-black/30 text-slate-200 border-white/15 hover:bg-white/10',
       ].join(' ')}
     >
       {label}
     </button>
   );
 }
+
 
 
