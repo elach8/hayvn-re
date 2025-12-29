@@ -20,6 +20,7 @@ type Client = {
   client_type: string | null;
   stage: string | null;
 
+  // buyer
   preferred_locations: string | null;
   budget_min: number | null;
   budget_max: number | null;
@@ -29,6 +30,15 @@ type Client = {
   min_beds: number | null;
   min_baths: number | null;
   deal_style: string | null;
+
+  // seller
+  seller_target: number | null;
+  seller_property_address: string | null;
+  seller_city: string | null;
+  seller_state: string | null;
+  seller_zip: string | null;
+  seller_timeline: string | null;
+  seller_listing_status: string | null;
 
   notes: string | null;
 };
@@ -99,8 +109,14 @@ function parseStringArray(v: string) {
 }
 
 function arraysEqual(a: string[] | null, b: string[] | null) {
-  const aa = (a || []).slice().map((x) => x.trim()).filter(Boolean);
-  const bb = (b || []).slice().map((x) => x.trim()).filter(Boolean);
+  const aa = (a || [])
+    .slice()
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const bb = (b || [])
+    .slice()
+    .map((x) => x.trim())
+    .filter(Boolean);
   if (aa.length !== bb.length) return false;
   // compare as sets (order-insensitive)
   const sa = new Set(aa.map((x) => x.toLowerCase()));
@@ -171,8 +187,7 @@ export default function PortalDashboardPage() {
         if (!email) {
           setState({
             loading: false,
-            error:
-              'We could not determine your email address. Please contact your agent.',
+            error: 'We could not determine your email address. Please contact your agent.',
             portalUser: null,
             client: null,
             summary: INITIAL_SUMMARY,
@@ -183,9 +198,7 @@ export default function PortalDashboardPage() {
         const portalUser: PortalUser = {
           id: user.id,
           full_name:
-            (user.user_metadata as any)?.full_name ||
-            (user.user_metadata as any)?.name ||
-            null,
+            (user.user_metadata as any)?.full_name || (user.user_metadata as any)?.name || null,
           email: (user.email ?? null) as string | null,
         };
 
@@ -206,13 +219,20 @@ export default function PortalDashboardPage() {
             min_beds,
             min_baths,
             deal_style,
+            seller_target,
+            seller_property_address,
+            seller_city,
+            seller_state,
+            seller_zip,
+            seller_timeline,
+            seller_listing_status,
             notes
           `,
           )
           .eq('email', email)
           .order('created_at', { ascending: true })
           .limit(1)
-         
+          // @ts-ignore (some supabase versions expose maybeSingle differently)
           .maybeSingle?.();
 
         // If maybeSingle doesn't exist in your version, fallback safely:
@@ -235,6 +255,13 @@ export default function PortalDashboardPage() {
               min_beds,
               min_baths,
               deal_style,
+              seller_target,
+              seller_property_address,
+              seller_city,
+              seller_state,
+              seller_zip,
+              seller_timeline,
+              seller_listing_status,
               notes
             `,
             )
@@ -276,38 +303,31 @@ export default function PortalDashboardPage() {
         // 3) Summary counts (best-effort)
         let summary: PortalSummary = { ...INITIAL_SUMMARY };
         try {
-          const [cpAll, cpFav, toursRes, offersRes, messagesRes, pendingRes] =
-            await Promise.all([
-              supabase
-                .from('client_properties')
-                .select('id', { count: 'exact', head: true })
-                .eq('client_id', client.id),
-              supabase
-                .from('client_properties')
-                .select('id', { count: 'exact', head: true })
-                .eq('client_id', client.id)
-                .eq('is_favorite', true),
-              supabase
-                .from('tours')
-                .select('id', { count: 'exact', head: true })
-                .eq('client_id', client.id)
-                .gte('scheduled_for', new Date().toISOString()),
-              supabase
-                .from('offers')
-                .select('id', { count: 'exact', head: true })
-                .eq('client_id', client.id),
-              supabase
-                .from('portal_messages')
-                .select('id', { count: 'exact', head: true })
-                .eq('client_id', client.id)
-                .eq('is_read_client', false),
-              // Option B: pending criteria changes (non-fatal if table not present yet)
-              supabase
-                .from('client_criteria_changes')
-                .select('id', { count: 'exact', head: true })
-                .eq('client_id', client.id)
-                .eq('status', 'pending'),
-            ]);
+          const [cpAll, cpFav, toursRes, offersRes, messagesRes, pendingRes] = await Promise.all([
+            supabase.from('client_properties').select('id', { count: 'exact', head: true }).eq('client_id', client.id),
+            supabase
+              .from('client_properties')
+              .select('id', { count: 'exact', head: true })
+              .eq('client_id', client.id)
+              .eq('is_favorite', true),
+            supabase
+              .from('tours')
+              .select('id', { count: 'exact', head: true })
+              .eq('client_id', client.id)
+              .gte('scheduled_for', new Date().toISOString()),
+            supabase.from('offers').select('id', { count: 'exact', head: true }).eq('client_id', client.id),
+            supabase
+              .from('portal_messages')
+              .select('id', { count: 'exact', head: true })
+              .eq('client_id', client.id)
+              .eq('is_read_client', false),
+            // Option B: pending criteria changes (non-fatal if table not present yet)
+            supabase
+              .from('client_criteria_changes')
+              .select('id', { count: 'exact', head: true })
+              .eq('client_id', client.id)
+              .eq('status', 'pending'),
+          ]);
 
           summary = {
             savedHomes: cpAll.count ?? 0,
@@ -343,8 +363,7 @@ export default function PortalDashboardPage() {
 
   const { loading, error, portalUser, client, summary } = state;
 
-  const formatMoney = (v: number | null) =>
-    v == null ? '-' : `$${v.toLocaleString()}`;
+  const formatMoney = (v: number | null) => (v == null ? '-' : `$${v.toLocaleString()}`);
 
   const formatBudget = (min: number | null, max: number | null) => {
     if (min == null && max == null) return 'Not specified';
@@ -353,12 +372,19 @@ export default function PortalDashboardPage() {
     return `Up to ${formatMoney(max)}`;
   };
 
+  const clientTypeNorm = useMemo(() => (client?.client_type || '').toLowerCase(), [client]);
+  const isBuyer = useMemo(
+    () => clientTypeNorm === 'buyer' || clientTypeNorm === 'both' || clientTypeNorm === '',
+    [clientTypeNorm],
+  );
+  const isSeller = useMemo(() => clientTypeNorm === 'seller' || clientTypeNorm === 'both', [clientTypeNorm]);
+
   const criteriaLabel = useMemo(() => {
     if (!client) return 'Criteria';
-    if (client.client_type === 'buyer') return 'Buyer criteria';
-    if (client.client_type === 'seller') return 'Seller details';
+    if (clientTypeNorm === 'buyer') return 'Buyer criteria';
+    if (clientTypeNorm === 'seller') return 'Seller details';
     return 'Criteria';
-  }, [client]);
+  }, [client, clientTypeNorm]);
 
   const canEditCriteria = useMemo(() => {
     // For now: allow edits if client is buyer or both.
@@ -366,6 +392,11 @@ export default function PortalDashboardPage() {
     const t = client?.client_type;
     return t === 'buyer' || t === 'both' || t == null;
   }, [client]);
+
+  const profileHref = useMemo(() => {
+    // Profile should go to portal client home if we have a client row
+    return client?.id ? `/portal/client/${client.id}` : '/portal/profile';
+  }, [client?.id]);
 
   async function submitCriteriaChangeRequest() {
     if (!client) return;
@@ -385,10 +416,7 @@ export default function PortalDashboardPage() {
       };
 
       // Compute diff (store only changed fields)
-      const changes: Record<
-        string,
-        { from: any; to: any }
-      > = {};
+      const changes: Record<string, { from: any; to: any }> = {};
 
       const current = {
         preferred_locations: client.preferred_locations ?? null,
@@ -449,17 +477,14 @@ export default function PortalDashboardPage() {
 
       setSaveState({
         status: 'success',
-        message:
-          'Submitted to your agent for review. They’ll apply it to your search once approved.',
+        message: 'Submitted to your agent for review. They’ll apply it to your search once approved.',
       });
       setIsEditing(false);
     } catch (err: any) {
       console.error('Criteria change submit error:', err);
       setSaveState({
         status: 'error',
-        message:
-          err?.message ??
-          'Could not submit your changes. Please try again or contact your agent.',
+        message: err?.message ?? 'Could not submit your changes. Please try again or contact your agent.',
       });
     }
   }
@@ -470,21 +495,15 @@ export default function PortalDashboardPage() {
       <header className="border-b border-white/10 bg-black/40 backdrop-blur">
         <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between gap-3">
           <div className="space-y-0.5">
-            <h1 className="text-sm sm:text-base font-semibold tracking-tight text-slate-50">
-              Hayvn Client Portal
-            </h1>
-            <p className="text-xs text-slate-400">
-              Your criteria, saved homes, tours, offers, and messages.
-            </p>
+            <h1 className="text-sm sm:text-base font-semibold tracking-tight text-slate-50">Hayvn Client Portal</h1>
+            <p className="text-xs text-slate-400">Your criteria, saved homes, tours, offers, and messages.</p>
           </div>
 
           <div className="text-right">
             {portalUser ? (
               <>
                 <p className="text-[11px] text-slate-400">Signed in as</p>
-                <p className="text-xs font-medium text-slate-100">
-                  {portalUser.full_name || portalUser.email}
-                </p>
+                <p className="text-xs font-medium text-slate-100">{portalUser.full_name || portalUser.email}</p>
               </>
             ) : (
               <button
@@ -503,10 +522,14 @@ export default function PortalDashboardPage() {
           <div className="mx-auto max-w-5xl px-4 py-2 flex flex-wrap items-center gap-2 text-xs">
             {PORTAL_LINKS.map((link, idx) => {
               const isActive = idx === 0;
+
+              // ✅ Profile now goes to /portal/client/[id] when we know the client
+              const href = link.href === '/portal/profile' ? profileHref : link.href;
+
               return (
                 <Link
                   key={link.href}
-                  href={link.href}
+                  href={href}
                   className={[
                     'rounded-full px-3 py-1 border text-[11px] transition-colors',
                     isActive
@@ -552,9 +575,8 @@ export default function PortalDashboardPage() {
           <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4 text-sm text-slate-200">
             <p className="mb-1">Your agent hasn’t connected your portal yet.</p>
             <p className="text-xs text-slate-400">
-              Ask your agent to create your client profile in Hayvn-RE using this
-              email address. Once they do, you’ll see your criteria, saved homes,
-              tours, offers, and messages here.
+              Ask your agent to create your client profile in Hayvn-RE using this email address. Once they do, you’ll
+              see your criteria, saved homes, tours, offers, and messages here.
             </p>
           </div>
         )}
@@ -571,23 +593,17 @@ export default function PortalDashboardPage() {
                 : 'border-red-500/40 bg-red-950/40 text-red-100',
             ].join(' ')}
           >
-            {saveState.status === 'saving'
-              ? 'Submitting your changes…'
-              : saveState.message}
+            {saveState.status === 'saving' ? 'Submitting your changes…' : saveState.message}
           </div>
         )}
 
-        {/* 1) Criteria (top) */}
+        {/* 1) Criteria / Seller details (top) */}
         {!loading && !error && portalUser && client && (
           <section className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
             <header className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[10px] uppercase tracking-wide text-slate-400">
-                  {criteriaLabel}
-                </div>
-                <h2 className="text-base font-semibold text-slate-50">
-                  {client.name || 'Your search criteria'}
-                </h2>
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">{criteriaLabel}</div>
+                <h2 className="text-base font-semibold text-slate-50">{client.name || 'Your details'}</h2>
                 <p className="text-xs text-slate-400 mt-0.5">
                   Changes you submit are sent to your agent for review.
                   {summary.pendingCriteriaChanges > 0 ? (
@@ -622,14 +638,11 @@ export default function PortalDashboardPage() {
                             // reset form back to client snapshot
                             setForm({
                               preferred_locations: client.preferred_locations || '',
-                              budget_min:
-                                client.budget_min != null ? String(client.budget_min) : '',
-                              budget_max:
-                                client.budget_max != null ? String(client.budget_max) : '',
+                              budget_min: client.budget_min != null ? String(client.budget_min) : '',
+                              budget_max: client.budget_max != null ? String(client.budget_max) : '',
                               property_types: (client.property_types || []).join(', '),
                               min_beds: client.min_beds != null ? String(client.min_beds) : '',
-                              min_baths:
-                                client.min_baths != null ? String(client.min_baths) : '',
+                              min_baths: client.min_baths != null ? String(client.min_baths) : '',
                               deal_style: client.deal_style || '',
                               notes: client.notes || '',
                             });
@@ -649,93 +662,106 @@ export default function PortalDashboardPage() {
                     )}
                   </>
                 ) : (
-                  <span className="text-[11px] text-slate-400">
-                    Editing not enabled for this profile
-                  </span>
+                  <span className="text-[11px] text-slate-400">Editing not enabled for this profile</span>
                 )}
               </div>
             </header>
 
+            {/* ✅ VIEW MODE */}
             {!isEditing ? (
-              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
-                <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Preferred areas
-                  </div>
-                  <div className="text-slate-100 mt-0.5">
-                    {client.preferred_locations || 'Not specified'}
-                  </div>
-                </div>
+              <>
+                {/* Buyer-style cards (buyer/both) */}
+                {isBuyer && (
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Preferred areas</div>
+                      <div className="text-slate-100 mt-0.5">{client.preferred_locations || 'Not specified'}</div>
+                    </div>
 
-                <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Budget
-                  </div>
-                  <div className="text-slate-100 mt-0.5">
-                    {formatBudget(client.budget_min, client.budget_max)}
-                  </div>
-                </div>
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Budget</div>
+                      <div className="text-slate-100 mt-0.5">{formatBudget(client.budget_min, client.budget_max)}</div>
+                    </div>
 
-                <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Property types
-                  </div>
-                  <div className="text-slate-100 mt-0.5">
-                    {client.property_types?.length
-                      ? client.property_types.join(', ')
-                      : 'Not specified'}
-                  </div>
-                </div>
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Property types</div>
+                      <div className="text-slate-100 mt-0.5">
+                        {client.property_types?.length ? client.property_types.join(', ') : 'Not specified'}
+                      </div>
+                    </div>
 
-                <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Beds / Baths
-                  </div>
-                  <div className="text-slate-100 mt-0.5">
-                    {client.min_beds != null ? `${client.min_beds}+ beds` : '—'}{' '}
-                    <span className="text-slate-500">•</span>{' '}
-                    {client.min_baths != null ? `${client.min_baths}+ baths` : '—'}
-                  </div>
-                </div>
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Beds / Baths</div>
+                      <div className="text-slate-100 mt-0.5">
+                        {client.min_beds != null ? `${client.min_beds}+ beds` : '—'}{' '}
+                        <span className="text-slate-500">•</span>{' '}
+                        {client.min_baths != null ? `${client.min_baths}+ baths` : '—'}
+                      </div>
+                    </div>
 
-                <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Deal style
-                  </div>
-                  <div className="text-slate-100 mt-0.5">
-                    {client.deal_style || 'Not specified'}
-                  </div>
-                </div>
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Deal style</div>
+                      <div className="text-slate-100 mt-0.5">{client.deal_style || 'Not specified'}</div>
+                    </div>
 
-                <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Notes
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Notes</div>
+                      <div className="text-slate-100 mt-0.5 line-clamp-4">{client.notes || '—'}</div>
+                    </div>
                   </div>
-                  <div className="text-slate-100 mt-0.5 line-clamp-4">
-                    {client.notes || '—'}
+                )}
+
+                {/* ✅ Seller-style cards (seller/both) */}
+                {isSeller && (
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:col-span-2 lg:col-span-2">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Property</div>
+                      <div className="text-slate-100 mt-0.5">
+                        {client.seller_property_address || 'Not specified'}
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        {[client.seller_city, client.seller_state].filter(Boolean).join(', ')}
+                        {client.seller_zip ? ` ${client.seller_zip}` : ''}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Target price</div>
+                      <div className="text-slate-100 mt-0.5">{formatMoney(client.seller_target)}</div>
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Listing status</div>
+                      <div className="text-slate-100 mt-0.5">{client.seller_listing_status || 'Not specified'}</div>
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:col-span-2">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Timeline</div>
+                      <div className="text-slate-100 mt-0.5">{client.seller_timeline || 'Not specified'}</div>
+                    </div>
+
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:col-span-2 lg:col-span-3">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Notes</div>
+                      <div className="text-slate-100 mt-0.5 line-clamp-4">{client.notes || '—'}</div>
+                    </div>
                   </div>
-                </div>
-              </div>
+                )}
+              </>
             ) : (
+              /* EDIT MODE (buyer-only for now, per canEditCriteria) */
               <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
                 <label className="space-y-1">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Preferred areas
-                  </div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">Preferred areas</div>
                   <input
                     value={form.preferred_locations}
-                    onChange={(e) =>
-                      setForm((p) => ({ ...p, preferred_locations: e.target.value }))
-                    }
+                    onChange={(e) => setForm((p) => ({ ...p, preferred_locations: e.target.value }))}
                     className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#EBD27A]/40"
                     placeholder="e.g., Santa Monica, Culver City"
                   />
                 </label>
 
                 <label className="space-y-1">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Budget min
-                  </div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">Budget min</div>
                   <input
                     value={form.budget_min}
                     onChange={(e) => setForm((p) => ({ ...p, budget_min: e.target.value }))}
@@ -746,9 +772,7 @@ export default function PortalDashboardPage() {
                 </label>
 
                 <label className="space-y-1">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Budget max
-                  </div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">Budget max</div>
                   <input
                     value={form.budget_max}
                     onChange={(e) => setForm((p) => ({ ...p, budget_max: e.target.value }))}
@@ -759,23 +783,17 @@ export default function PortalDashboardPage() {
                 </label>
 
                 <label className="space-y-1 sm:col-span-2 lg:col-span-3">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Property types (comma-separated)
-                  </div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">Property types (comma-separated)</div>
                   <input
                     value={form.property_types}
-                    onChange={(e) =>
-                      setForm((p) => ({ ...p, property_types: e.target.value }))
-                    }
+                    onChange={(e) => setForm((p) => ({ ...p, property_types: e.target.value }))}
                     className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#EBD27A]/40"
                     placeholder="e.g., single_family, condo, townhouse"
                   />
                 </label>
 
                 <label className="space-y-1">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Min beds
-                  </div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">Min beds</div>
                   <input
                     value={form.min_beds}
                     onChange={(e) => setForm((p) => ({ ...p, min_beds: e.target.value }))}
@@ -786,9 +804,7 @@ export default function PortalDashboardPage() {
                 </label>
 
                 <label className="space-y-1">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Min baths
-                  </div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">Min baths</div>
                   <input
                     value={form.min_baths}
                     onChange={(e) => setForm((p) => ({ ...p, min_baths: e.target.value }))}
@@ -799,9 +815,7 @@ export default function PortalDashboardPage() {
                 </label>
 
                 <label className="space-y-1">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Deal style
-                  </div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">Deal style</div>
                   <input
                     value={form.deal_style}
                     onChange={(e) => setForm((p) => ({ ...p, deal_style: e.target.value }))}
@@ -811,9 +825,7 @@ export default function PortalDashboardPage() {
                 </label>
 
                 <label className="space-y-1 sm:col-span-2 lg:col-span-3">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">
-                    Notes for your agent
-                  </div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">Notes for your agent</div>
                   <textarea
                     value={form.notes}
                     onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
@@ -832,58 +844,39 @@ export default function PortalDashboardPage() {
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-xs">
             {/* Saved Properties */}
             <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 flex flex-col justify-between">
-              <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">
-                Saved homes
-              </div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Saved homes</div>
               <div className="flex items-end justify-between gap-2">
                 <div>
-                  <div className="text-2xl font-semibold text-slate-50">
-                    {summary.savedHomes}
-                  </div>
-                  <div className="text-[11px] text-slate-400">
-                    Homes your agent linked to you.
-                  </div>
+                  <div className="text-2xl font-semibold text-slate-50">{summary.savedHomes}</div>
+                  <div className="text-[11px] text-slate-400">Homes your agent linked to you.</div>
                 </div>
-                <Link
-                  href="/portal/properties"
-                  className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline"
-                >
+                <Link href="/portal/properties" className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline">
                   View
                 </Link>
               </div>
               {summary.favoriteHomes > 0 && (
-                <div className="mt-1 text-[11px] text-emerald-300">
-                  {summary.favoriteHomes} marked as favorites
-                </div>
+                <div className="mt-1 text-[11px] text-emerald-300">{summary.favoriteHomes} marked as favorites</div>
               )}
             </div>
 
             {/* Tours & Offers */}
             <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 flex flex-col justify-between">
-              <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">
-                Tours & offers
-              </div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Tours & offers</div>
               <div className="flex items-end justify-between gap-2">
                 <div>
                   <div className="text-sm text-slate-100">
-                    <span className="font-semibold">{summary.upcomingTours}</span>{' '}
-                    upcoming tour{summary.upcomingTours === 1 ? '' : 's'}
+                    <span className="font-semibold">{summary.upcomingTours}</span> upcoming tour
+                    {summary.upcomingTours === 1 ? '' : 's'}
                   </div>
                   <div className="text-[11px] text-slate-400">
                     {summary.offers} offer{summary.offers === 1 ? '' : 's'} so far
                   </div>
                 </div>
                 <div className="flex flex-col gap-1 text-right">
-                  <Link
-                    href="/portal/tours"
-                    className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline"
-                  >
+                  <Link href="/portal/tours" className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline">
                     Tours
                   </Link>
-                  <Link
-                    href="/portal/offers"
-                    className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline"
-                  >
+                  <Link href="/portal/offers" className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline">
                     Offers
                   </Link>
                 </div>
@@ -892,22 +885,13 @@ export default function PortalDashboardPage() {
 
             {/* Messages */}
             <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 flex flex-col justify-between">
-              <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">
-                Messages
-              </div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Messages</div>
               <div className="flex items-end justify-between gap-2">
                 <div>
-                  <div className="text-2xl font-semibold text-slate-50">
-                    {summary.unreadMessages}
-                  </div>
-                  <div className="text-[11px] text-slate-400">
-                    Unread messages from your agent.
-                  </div>
+                  <div className="text-2xl font-semibold text-slate-50">{summary.unreadMessages}</div>
+                  <div className="text-[11px] text-slate-400">Unread messages from your agent.</div>
                 </div>
-                <Link
-                  href="/portal/messages"
-                  className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline"
-                >
+                <Link href="/portal/messages" className="text-[11px] text-sky-300 hover:text-sky-200 hover:underline">
                   Open
                 </Link>
               </div>
@@ -918,4 +902,3 @@ export default function PortalDashboardPage() {
     </main>
   );
 }
-

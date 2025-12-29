@@ -191,6 +191,20 @@ export default function EditClientPage() {
     return Object.keys(ch);
   }, [changeRow]);
 
+  // ✅ Matches "new client" seller section layout (light card within, same input sizing & grouping)
+  const sellerNotesBackCompat = useMemo(() => {
+    const raw = (notes || '').toString();
+    const pick = (label: string) => {
+      const re = new RegExp(String.raw`^\s*-\s*${label}\s*:\s*(.+)\s*$`, 'mi');
+      const m = raw.match(re);
+      return m?.[1]?.trim() || '';
+    };
+    return {
+      goals: pick('Seller goals'),
+      showings: pick('Showing constraints'),
+    };
+  }, [notes]);
+
   // Load client + optional change request
   useEffect(() => {
     if (!id) return;
@@ -484,9 +498,7 @@ export default function EditClientPage() {
       <header className="flex items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">Edit Client</h1>
-          <p className="text-sm text-slate-300">
-            Buyer fields and seller fields adapt based on type. Notes are shared for both.
-          </p>
+          <p className="text-sm text-slate-300">Buyer fields and seller fields adapt based on type. Notes are shared for both.</p>
         </div>
         <div className="flex gap-2">
           <Link href={`/clients/${encodeURIComponent(id)}`}>
@@ -508,8 +520,7 @@ export default function EditClientPage() {
             <div>
               <p className="text-sm text-amber-200 font-medium">Client requested criteria updates</p>
               <p className="text-xs text-slate-300">
-                Review the pre-filled changes below. Click <span className="font-semibold">Save changes</span> to apply,
-                or reject the request.
+                Review the pre-filled changes below. Click <span className="font-semibold">Save changes</span> to apply, or reject the request.
               </p>
               {changedFields.length > 0 && (
                 <p className="text-[11px] text-slate-400 mt-1">
@@ -670,9 +681,7 @@ export default function EditClientPage() {
                 <div className="space-y-2">
                   <div>
                     <label className="block text-sm font-medium mb-1 text-slate-100">Preferred Locations</label>
-                    <p className="text-xs text-slate-400">
-                      Use checkboxes for speed + add custom cities (stored as a comma list).
-                    </p>
+                    <p className="text-xs text-slate-400">Use checkboxes for speed + add custom cities (stored as a comma list).</p>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 rounded-xl border border-white/10 bg-black/30 p-3">
@@ -736,10 +745,11 @@ export default function EditClientPage() {
               </>
             )}
 
-            {/* Seller fields */}
+            {/* ✅ Seller fields — now matches the "new client" seller layout */}
             {isSeller && (
               <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-3">
                 <div className="text-sm font-semibold text-slate-100">Seller details</div>
+                <div className="text-xs text-slate-300">Capture listing basics, target price, and timing. These show on the client detail page.</div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="sm:col-span-2">
@@ -828,6 +838,50 @@ export default function EditClientPage() {
                     </select>
                   </div>
                 </div>
+
+                {/* These two are shown in "new client" seller section and were historically embedded into notes.
+                    Keep them here as visible inputs (optional), but we do NOT change schema.
+                    If you later add real columns, we can wire them directly. */}
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">Seller goals</label>
+                  <input
+                    type="text"
+                    value={sellerNotesBackCompat.goals}
+                    onChange={(e) => {
+                      const goals = e.target.value;
+                      // update notes block, replacing (or adding) "- Seller goals: ..."
+                      const lines = (notes || '').split('\n');
+                      const has = lines.some((l) => /^\s*-\s*Seller goals\s*:/.test(l));
+                      const next = has
+                        ? lines.map((l) => (/^\s*-\s*Seller goals\s*:/.test(l) ? `- Seller goals: ${goals}` : l))
+                        : [...lines.filter((l) => l.trim() !== ''), `- Seller goals: ${goals}`];
+                      setNotes(next.join('\n').trim());
+                    }}
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                    placeholder="e.g., maximize price, minimize hassle"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-400">Stored inside Notes for now (back-compat). We can promote this to a real column later.</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">Showing constraints</label>
+                  <input
+                    type="text"
+                    value={sellerNotesBackCompat.showings}
+                    onChange={(e) => {
+                      const showings = e.target.value;
+                      const lines = (notes || '').split('\n');
+                      const has = lines.some((l) => /^\s*-\s*Showing constraints\s*:/.test(l));
+                      const next = has
+                        ? lines.map((l) => (/^\s*-\s*Showing constraints\s*:/.test(l) ? `- Showing constraints: ${showings}` : l))
+                        : [...lines.filter((l) => l.trim() !== ''), `- Showing constraints: ${showings}`];
+                      setNotes(next.join('\n').trim());
+                    }}
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
+                    placeholder="e.g., weekdays after 5pm, no weekends"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-400">Stored inside Notes for now (back-compat). We can promote this to a real column later.</p>
+                </div>
               </div>
             )}
 
@@ -849,12 +903,7 @@ export default function EditClientPage() {
               </Button>
 
               <div className="flex gap-2 w-full sm:w-auto">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="w-full sm:w-auto"
-                  onClick={() => router.push(`/clients/${encodeURIComponent(id)}`)}
-                >
+                <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={() => router.push(`/clients/${encodeURIComponent(id)}`)}>
                   Cancel
                 </Button>
               </div>
@@ -865,4 +914,5 @@ export default function EditClientPage() {
     </div>
   );
 }
+
 

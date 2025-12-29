@@ -763,6 +763,22 @@ export default function ClientDetailPage() {
     return parts.join(' • ');
   }, [client]);
 
+  // ✅ Back-compat: if older seller goals/showings were appended into notes, we can display them.
+  const sellerNotesBackCompat = useMemo(() => {
+    const raw = (client?.notes || '').toString();
+    const pick = (label: string) => {
+      // matches "- Seller goals: ..." and "- Showing constraints: ..."
+      const re = new RegExp(String.raw`^\s*-\s*${label}\s*:\s*(.+)\s*$`, 'mi');
+      const m = raw.match(re);
+      return m?.[1]?.trim() || '';
+    };
+
+    return {
+      goals: pick('Seller goals'),
+      showings: pick('Showing constraints'),
+    };
+  }, [client?.notes]);
+
   return (
     <div className="max-w-5xl space-y-6">
       {/* Top bar */}
@@ -940,7 +956,125 @@ export default function ClientDetailPage() {
             </div>
           </Card>
 
-          {/* 2) Buyer requirements (buyer/both only) */}
+          {/* ✅ 2) Seller details (seller/both only) — matches clients/new layout */}
+          {isSeller && (
+            <Card className="space-y-3">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-3">
+                <div className="text-sm font-semibold text-slate-100">Seller details</div>
+                <div className="text-xs text-slate-300">Read-only snapshot. Edit on the Edit Client page.</div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-medium mb-1 text-slate-100">Listing address</label>
+                    <input
+                      type="text"
+                      value={client.seller_property_address || ''}
+                      readOnly
+                      disabled
+                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37] disabled:opacity-80"
+                      placeholder="—"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">Target list price</label>
+                    <input
+                      type="text"
+                      value={client.seller_target == null ? '' : client.seller_target.toLocaleString()}
+                      readOnly
+                      disabled
+                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37] disabled:opacity-80"
+                      placeholder="—"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">City</label>
+                    <input
+                      type="text"
+                      value={client.seller_city || ''}
+                      readOnly
+                      disabled
+                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37] disabled:opacity-80"
+                      placeholder="—"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">State</label>
+                    <input
+                      type="text"
+                      value={[client.seller_state || '', client.seller_zip || ''].filter(Boolean).join(' ').trim()}
+                      readOnly
+                      disabled
+                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37] disabled:opacity-80"
+                      placeholder="—"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">Timeline</label>
+                    <input
+                      type="text"
+                      value={client.seller_timeline || ''}
+                      readOnly
+                      disabled
+                      className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37] disabled:opacity-80"
+                      placeholder="—"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">Listing status</label>
+                  <input
+                    type="text"
+                    value={client.seller_listing_status || ''}
+                    readOnly
+                    disabled
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37] disabled:opacity-80"
+                    placeholder="—"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">Seller goals</label>
+                  <input
+                    type="text"
+                    value={sellerNotesBackCompat.goals || ''}
+                    readOnly
+                    disabled
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37] disabled:opacity-80"
+                    placeholder="—"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-100">Showing constraints</label>
+                  <input
+                    type="text"
+                    value={sellerNotesBackCompat.showings || ''}
+                    readOnly
+                    disabled
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37] disabled:opacity-80"
+                    placeholder="—"
+                  />
+                </div>
+
+                <p className="text-[11px] text-slate-400">These fields are stored on the client record (goals/constraints may appear if older notes included them).</p>
+              </div>
+
+              <div className="flex justify-end">
+                <Link href={`/clients/${id}/edit`}>
+                  <Button variant="ghost" className="text-xs px-3 py-1.5">
+                    Edit Client →
+                  </Button>
+                </Link>
+              </div>
+            </Card>
+          )}
+
+          {/* 3) Buyer requirements (buyer/both only) */}
           {isBuyer && (
             <Card className="space-y-3">
               <div className="flex items-start justify-between gap-3">
@@ -991,7 +1125,7 @@ export default function ClientDetailPage() {
             </Card>
           )}
 
-          {/* 3) Buyer attached properties (buyer/both only) */}
+          {/* 4) Buyer attached properties (buyer/both only) */}
           {isBuyer && (
             <Card className="space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -1130,7 +1264,7 @@ export default function ClientDetailPage() {
             </Card>
           )}
 
-          {/* 4) Tours (buyer/both only) */}
+          {/* 5) Tours (buyer/both only) */}
           {isBuyer && (
             <Card className="space-y-3">
               <div className="flex items-center justify-between">
@@ -1193,7 +1327,7 @@ export default function ClientDetailPage() {
             </Card>
           )}
 
-          {/* 5) Offers (buyer/both only) */}
+          {/* 6) Offers (buyer/both only) */}
           {isBuyer && (
             <Card className="space-y-3">
               <div className="flex items-center justify-between">
@@ -1292,7 +1426,7 @@ export default function ClientDetailPage() {
             </Card>
           )}
 
-          {/* 6) Messages (both buyer & seller) */}
+          {/* 7) Messages (both buyer & seller) */}
           <Card className="space-y-3">
             <h2 className="text-lg font-semibold text-white">Messages to client portal</h2>
 
@@ -1378,7 +1512,7 @@ export default function ClientDetailPage() {
             )}
           </Card>
 
-          {/* 7) Internal notes (both buyer & seller) */}
+          {/* 8) Internal notes (both buyer & seller) */}
           <Card className="space-y-3">
             <h2 className="text-lg font-semibold text-white">Internal notes</h2>
 
@@ -1420,4 +1554,5 @@ export default function ClientDetailPage() {
     </div>
   );
 }
+
 
