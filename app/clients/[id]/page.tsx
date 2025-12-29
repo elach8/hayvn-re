@@ -15,9 +15,15 @@ type Client = {
   phone: string | null;
   client_type: string | null;
   stage: string | null;
+
+  // buyer budget
   budget_min: number | null;
   budget_max: number | null;
+
+  // buyer location
   preferred_locations: string | null;
+
+  // shared notes
   notes: string | null;
 
   // requirements fields
@@ -25,6 +31,15 @@ type Client = {
   min_beds: number | null;
   min_baths: number | null;
   deal_style: string | null;
+
+  // seller fields
+  seller_target: number | null;
+  seller_property_address: string | null;
+  seller_city: string | null;
+  seller_state: string | null;
+  seller_zip: string | null;
+  seller_timeline: string | null;
+  seller_listing_status: string | null;
 };
 
 type Property = {
@@ -158,11 +173,6 @@ export default function ClientDetailPage() {
   const [linkError, setLinkError] = useState<string | null>(null);
   const [linkSaving, setLinkSaving] = useState(false);
 
-  // ✅ Seller-only editable workflow notes (stored in clients.notes for now)
-  const [sellerNotes, setSellerNotes] = useState('');
-  const [savingSellerNotes, setSavingSellerNotes] = useState(false);
-  const [sellerNotesError, setSellerNotesError] = useState<string | null>(null);
-
   useEffect(() => {
     if (!id) return;
 
@@ -187,7 +197,14 @@ export default function ClientDetailPage() {
           property_types,
           min_beds,
           min_baths,
-          deal_style
+          deal_style,
+          seller_target,
+          seller_property_address,
+          seller_city,
+          seller_state,
+          seller_zip,
+          seller_timeline,
+          seller_listing_status
         `,
         )
         .eq('id', id)
@@ -205,11 +222,6 @@ export default function ClientDetailPage() {
       setClient(c);
 
       if (c?.email) setPortalEmail(c.email);
-
-      // If seller or both, initialize sellerNotes (we keep it separate so we can avoid clobbering buyer notes later)
-      const ct = (c?.client_type || '').toLowerCase();
-      const isSeller = ct === 'seller' || ct === 'both';
-      if (isSeller) setSellerNotes(c?.notes || '');
 
       setLoadingClient(false);
     };
@@ -675,30 +687,6 @@ export default function ClientDetailPage() {
     setArchivingCpId(null);
   };
 
-  // ✅ Seller workflow notes save (stored in clients.notes)
-  const handleSaveSellerNotes = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!client) return;
-
-    setSavingSellerNotes(true);
-    setSellerNotesError(null);
-
-    const { error } = await supabase
-      .from('clients')
-      .update({ notes: sellerNotes.trim() || null })
-      .eq('id', client.id);
-
-    if (error) {
-      console.error('Error saving seller notes:', error);
-      setSellerNotesError(error.message || 'Failed to save seller notes.');
-      setSavingSellerNotes(false);
-      return;
-    }
-
-    setClient((prev) => (prev ? { ...prev, notes: sellerNotes.trim() || null } : prev));
-    setSavingSellerNotes(false);
-  };
-
   const formatBudget = (min: number | null, max: number | null) => {
     if (min == null && max == null) return '-';
     const toMoney = (v: number | null) => (v == null ? '' : `$${v.toLocaleString()}`);
@@ -720,10 +708,7 @@ export default function ClientDetailPage() {
   const isBuyer = ct === 'buyer' || ct === 'both' || ct === '';
   const isSeller = ct === 'seller' || ct === 'both';
 
-  const favoriteCount = useMemo(
-    () => clientProperties.filter((cp) => cp.is_favorite).length,
-    [clientProperties],
-  );
+  const favoriteCount = useMemo(() => clientProperties.filter((cp) => cp.is_favorite).length, [clientProperties]);
 
   const now = useMemo(() => new Date(), []);
   const upcomingTours = useMemo(
@@ -757,6 +742,26 @@ export default function ClientDetailPage() {
     () => clientProperties.filter((cp) => (cp.status ?? 'active') === 'archived').length,
     [clientProperties],
   );
+
+  const sellerSummaryLine = useMemo(() => {
+    if (!client) return '';
+    const parts: string[] = [];
+
+    const addr = (client.seller_property_address || '').trim();
+    const city = (client.seller_city || '').trim();
+    const state = (client.seller_state || '').trim();
+    const zip = (client.seller_zip || '').trim();
+
+    const addrLine = [addr, city, state].filter(Boolean).join(', ');
+    const withZip = [addrLine, zip].filter(Boolean).join(' ');
+    if (withZip) parts.push(withZip);
+
+    if (client.seller_target != null) parts.push(`Target: ${formatPrice(client.seller_target)}`);
+    if (client.seller_listing_status) parts.push(`Status: ${client.seller_listing_status}`);
+    if (client.seller_timeline) parts.push(`Timeline: ${client.seller_timeline}`);
+
+    return parts.join(' • ');
+  }, [client]);
 
   return (
     <div className="max-w-5xl space-y-6">
@@ -812,17 +817,25 @@ export default function ClientDetailPage() {
                     <div className="text-slate-400 text-xs uppercase tracking-wide">Stage</div>
                     <div className="font-medium text-slate-50">{client.stage || '-'}</div>
                   </div>
+
                   <div>
                     <div className="text-slate-400 text-xs uppercase tracking-wide">{isBuyer ? 'Budget' : 'Target price'}</div>
-                    <div className="font-medium text-slate-50">{formatBudget(client.budget_min, client.budget_max)}</div>
+                    <div className="font-medium text-slate-50">
+                      {isBuyer ? formatBudget(client.budget_min, client.budget_max) : formatPrice(client.seller_target)}
+                    </div>
                   </div>
 
-                  {client.preferred_locations && (
+                  {isBuyer && client.preferred_locations && (
                     <div className="sm:col-span-2">
-                      <div className="text-slate-400 text-xs uppercase tracking-wide">
-                        {isBuyer ? 'Preferred Locations' : 'Service area / location'}
-                      </div>
+                      <div className="text-slate-400 text-xs uppercase tracking-wide">Preferred Locations</div>
                       <div className="font-medium text-slate-50">{client.preferred_locations}</div>
+                    </div>
+                  )}
+
+                  {isSeller && sellerSummaryLine && (
+                    <div className="sm:col-span-3">
+                      <div className="text-slate-400 text-xs uppercase tracking-wide">Seller summary</div>
+                      <div className="font-medium text-slate-50">{sellerSummaryLine}</div>
                     </div>
                   )}
                 </div>
@@ -835,11 +848,9 @@ export default function ClientDetailPage() {
               </div>
             </div>
 
-            {/* ✅ Seller notes show in the seller section; buyer notes still show here */}
-            {!isSeller && client.notes && (
-              <p className="mt-1 text-sm text-slate-200 whitespace-pre-wrap border-t border-white/10 pt-3">
-                {client.notes}
-              </p>
+            {/* Notes (shared) */}
+            {client.notes && (
+              <p className="mt-1 text-sm text-slate-200 whitespace-pre-wrap border-t border-white/10 pt-3">{client.notes}</p>
             )}
 
             {/* Portal access */}
@@ -913,9 +924,7 @@ export default function ClientDetailPage() {
                         className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 flex items-center justify-between text-xs text-slate-100"
                       >
                         <div>
-                          <div className="font-medium">
-                            {link.portal_user.full_name || link.portal_user.email || 'Portal user'}
-                          </div>
+                          <div className="font-medium">{link.portal_user.full_name || link.portal_user.email || 'Portal user'}</div>
                           <div className="text-slate-400">{link.portal_user.email || 'No email'}</div>
                         </div>
                         <div className="text-right">
@@ -930,51 +939,6 @@ export default function ClientDetailPage() {
               </div>
             </div>
           </Card>
-
-          {/* ✅ Seller workflow (only seller/both) */}
-          {isSeller && (
-            <Card className="space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-lg font-semibold text-white">Seller workflow</h2>
-                  <p className="text-xs text-slate-300">
-                    This is the seller-side “hub”: listing plan, prep tasks, pricing notes, showing strategy, and next steps.
-                    (Stored in <code>clients.notes</code> for now.)
-                  </p>
-                </div>
-
-                <span className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[11px] text-slate-200">
-                  Seller view
-                </span>
-              </div>
-
-              {sellerNotesError && <p className="text-sm text-red-300">{sellerNotesError}</p>}
-
-              <form onSubmit={handleSaveSellerNotes} className="space-y-2">
-                <label className="block text-xs font-medium text-slate-200">Seller notes / plan</label>
-                <textarea
-                  value={sellerNotes}
-                  onChange={(e) => setSellerNotes(e.target.value)}
-                  className="w-full rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#D4AF37]"
-                  rows={6}
-                  placeholder={[
-                    'Suggested template:',
-                    '- Pricing thesis + comp notes',
-                    '- Prep checklist (paint, staging, landscaping, repairs)',
-                    '- Photo / video date',
-                    '- Go-live date + open houses',
-                    '- Showing rules + lockbox',
-                    '- Offer review plan + counter strategy',
-                  ].join('\n')}
-                />
-                <div className="flex justify-end">
-                  <Button type="submit" disabled={savingSellerNotes}>
-                    {savingSellerNotes ? 'Saving…' : 'Save seller notes'}
-                  </Button>
-                </div>
-              </form>
-            </Card>
-          )}
 
           {/* 2) Buyer requirements (buyer/both only) */}
           {isBuyer && (
@@ -1033,9 +997,7 @@ export default function ClientDetailPage() {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold text-white">Attached properties</h2>
-                  <p className="text-[11px] text-slate-400">
-                    Archive removes a property from the client&apos;s view (feedback is kept).
-                  </p>
+                  <p className="text-[11px] text-slate-400">Archive removes a property from the client&apos;s view (feedback is kept).</p>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -1093,9 +1055,7 @@ export default function ClientDetailPage() {
                         return (
                           <tr
                             key={cp.id}
-                            className={['hover:bg-white/5 text-slate-100 align-top', isArchived ? 'opacity-75' : ''].join(
-                              ' ',
-                            )}
+                            className={['hover:bg-white/5 text-slate-100 align-top', isArchived ? 'opacity-75' : ''].join(' ')}
                           >
                             <td className="border-b border-white/5 px-2 py-1">
                               {cp.property ? (
@@ -1194,10 +1154,7 @@ export default function ClientDetailPage() {
                       <h3 className="text-xs font-semibold uppercase text-slate-400 mb-1">Upcoming</h3>
                       <ul className="space-y-1">
                         {upcomingTours.map((t) => (
-                          <li
-                            key={t.id}
-                            className="border border-white/10 rounded-md p-2 bg-black/30 flex items-center justify-between gap-2"
-                          >
+                          <li key={t.id} className="border border-white/10 rounded-md p-2 bg-black/30 flex items-center justify-between gap-2">
                             <div>
                               <Link href={`/tours/${t.id}`} className="font-medium text-[#EBD27A] hover:underline">
                                 {t.title || 'Untitled tour'}
@@ -1217,10 +1174,7 @@ export default function ClientDetailPage() {
                       <h3 className="text-xs font-semibold uppercase text-slate-400 mt-2 mb-1">Past</h3>
                       <ul className="space-y-1">
                         {pastTours.map((t) => (
-                          <li
-                            key={t.id}
-                            className="border border-white/10 rounded-md p-2 bg-black/30 flex items-center justify-between gap-2"
-                          >
+                          <li key={t.id} className="border border-white/10 rounded-md p-2 bg-black/30 flex items-center justify-between gap-2">
                             <div>
                               <Link href={`/tours/${t.id}`} className="font-medium text-[#EBD27A] hover:underline">
                                 {t.title || 'Untitled tour'}
@@ -1255,9 +1209,7 @@ export default function ClientDetailPage() {
               {offersLoading && <p className="text-sm text-slate-300">Loading offers…</p>}
 
               {!offersLoading && offers.length === 0 && !offersError && (
-                <p className="text-sm text-slate-300">
-                  No offers yet for this client. When you create an offer tied to this client, it will show up here.
-                </p>
+                <p className="text-sm text-slate-300">No offers yet for this client. When you create an offer tied to this client, it will show up here.</p>
               )}
 
               {!offersLoading && offers.length > 0 && (
@@ -1390,9 +1342,7 @@ export default function ClientDetailPage() {
             {messagesLoading && <p className="text-sm text-slate-300">Loading portal messages…</p>}
 
             {!messagesLoading && messages.length === 0 && !messagesError && (
-              <p className="text-sm text-slate-300">
-                No messages yet. Use the form above to send updates that show up in the client&apos;s portal.
-              </p>
+              <p className="text-sm text-slate-300">No messages yet. Use the form above to send updates that show up in the client&apos;s portal.</p>
             )}
 
             {!messagesLoading && messages.length > 0 && (

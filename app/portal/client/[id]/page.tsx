@@ -23,6 +23,15 @@ type JourneyClient = {
   preferred_locations: string | null;
   notes: string | null;
   agent_id: string | null;
+
+  // ✅ Seller fields (from clients table)
+  seller_target: number | null;
+  seller_property_address: string | null;
+  seller_city: string | null;
+  seller_state: string | null;
+  seller_zip: string | null;
+  seller_timeline: string | null;
+  seller_listing_status: string | null;
 };
 
 type Agent = {
@@ -201,6 +210,15 @@ function ClientJourneyInner() {
           preferred_locations: rawClient.preferred_locations,
           notes: rawClient.notes,
           agent_id: rawClient.agent_id ?? null,
+
+          // ✅ Seller fields
+          seller_target: rawClient.seller_target ?? null,
+          seller_property_address: rawClient.seller_property_address ?? null,
+          seller_city: rawClient.seller_city ?? null,
+          seller_state: rawClient.seller_state ?? null,
+          seller_zip: rawClient.seller_zip ?? null,
+          seller_timeline: rawClient.seller_timeline ?? null,
+          seller_listing_status: rawClient.seller_listing_status ?? null,
         };
 
         const accessRole = (accessRow as any).role as string | null;
@@ -368,7 +386,8 @@ function ClientJourneyInner() {
             property_address: (r.property_address as string | null) ?? null,
             property_city: (r.property_city as string | null) ?? null,
             property_state: (r.property_state as string | null) ?? null,
-            property_postal_code: (r.property_postal_code as string | null) ?? null,
+            property_postal_code:
+              (r.property_postal_code as string | null) ?? null,
             property_type: (r.property_type as string | null) ?? null,
             staging_status: (r.staging_status as string | null) ?? null,
             pricing_confidence: (r.pricing_confidence as string | null) ?? null,
@@ -446,6 +465,38 @@ function ClientJourneyInner() {
     if (status === 'needs_work') return 'Needs preparation';
     if (status === 'draft') return 'Draft';
     return status;
+  };
+
+  // ✅ seller display helpers (portal-safe)
+  const isSeller =
+    client?.client_type === 'seller' || client?.client_type === 'both';
+  const isBuyer =
+    client?.client_type === 'buyer' || client?.client_type === 'both';
+
+  const sellerAddressLine = useMemo(() => {
+    if (!client) return '';
+    const parts = [
+      client.seller_property_address,
+      client.seller_city,
+      client.seller_state,
+      client.seller_zip,
+    ]
+      .map((x) => (x || '').trim())
+      .filter(Boolean);
+    return parts.join(', ');
+  }, [client]);
+
+  const sellerStatusLabel = (raw: string | null) => {
+    if (!raw) return 'Not started';
+    // keep it deterministic but not "free text"
+    if (raw === 'not_started') return 'Not started';
+    if (raw === 'prep') return 'Preparing';
+    if (raw === 'ready') return 'Ready to list';
+    if (raw === 'active') return 'Active listing';
+    if (raw === 'pending') return 'Pending';
+    if (raw === 'sold') return 'Sold';
+    // fallback: still show, but lightly normalized
+    return raw.replace(/_/g, ' ');
   };
 
   const now = useMemo(() => new Date(), []);
@@ -529,41 +580,107 @@ function ClientJourneyInner() {
         <section className="rounded-2xl border border-white/10 bg-black/40 p-4 space-y-3 text-sm">
           <header className="flex items-center justify-between gap-2">
             <div>
-              <h2 className="text-sm font-semibold text-slate-50">
-                Overview
-              </h2>
+              <h2 className="text-sm font-semibold text-slate-50">Overview</h2>
               <p className="text-xs text-slate-400">
-                A snapshot of your search with your agent.
+                A snapshot of your journey with your agent.
               </p>
             </div>
           </header>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-1">
-            <div>
-              <div className="text-[11px] text-slate-400 uppercase tracking-wide">
-                Status
+          {/* ✅ Buyer summary (unchanged behavior) */}
+          {isBuyer && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-1">
+              <div>
+                <div className="text-[11px] text-slate-400 uppercase tracking-wide">
+                  Status
+                </div>
+                <div className="text-sm font-medium text-slate-50">
+                  {client.stage || 'Active'}
+                </div>
               </div>
-              <div className="text-sm font-medium text-slate-50">
-                {client.stage || 'Active'}
+              <div>
+                <div className="text-[11px] text-slate-400 uppercase tracking-wide">
+                  Budget
+                </div>
+                <div className="text-sm font-medium text-slate-50">
+                  {formatBudget(client.budget_min, client.budget_max)}
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-400 uppercase tracking-wide">
+                  Preferred areas
+                </div>
+                <div className="text-sm font-medium text-slate-50">
+                  {client.preferred_locations || 'Not specified'}
+                </div>
               </div>
             </div>
-            <div>
-              <div className="text-[11px] text-slate-400 uppercase tracking-wide">
-                Budget
+          )}
+
+          {/* ✅ Seller summary (NEW: structured, not dumped in notes) */}
+          {isSeller && (
+            <div className="mt-1 rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold text-slate-100">
+                  Seller details
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  {sellerStatusLabel(client.seller_listing_status)}
+                </div>
               </div>
-              <div className="text-sm font-medium text-slate-50">
-                {formatBudget(client.budget_min, client.budget_max)}
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <div className="text-[11px] text-slate-400 uppercase tracking-wide">
+                    Property
+                  </div>
+                  <div className="text-sm font-medium text-slate-50">
+                    {sellerAddressLine || 'Not specified'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] text-slate-400 uppercase tracking-wide">
+                    Target price
+                  </div>
+                  <div className="text-sm font-medium text-slate-50">
+                    {formatMoney(client.seller_target)}
+                  </div>
+                </div>
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <div className="text-[11px] text-slate-400 uppercase tracking-wide">
+                    Timeline
+                  </div>
+                  <div className="text-sm font-medium text-slate-50">
+                    {client.seller_timeline || 'Not specified'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] text-slate-400 uppercase tracking-wide">
+                    Listing status
+                  </div>
+                  <div className="text-sm font-medium text-slate-50">
+                    {sellerStatusLabel(client.seller_listing_status)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] text-slate-400 uppercase tracking-wide">
+                    Journey status
+                  </div>
+                  <div className="text-sm font-medium text-slate-50">
+                    {client.stage || 'Active'}
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-400">
+                Your agent will keep these details updated as you prepare to go
+                on market.
+              </p>
             </div>
-            <div>
-              <div className="text-[11px] text-slate-400 uppercase tracking-wide">
-                Preferred areas
-              </div>
-              <div className="text-sm font-medium text-slate-50">
-                {client.preferred_locations || 'Not specified'}
-              </div>
-            </div>
-          </div>
+          )}
 
           {agent && (
             <div className="mt-3 text-xs text-slate-300">
@@ -761,9 +878,7 @@ function ClientJourneyInner() {
                           {p?.address || 'Home'}
                         </div>
                         <div className="text-[11px] text-slate-400">
-                          {p?.city && p?.state
-                            ? `${p.city}, ${p.state}`
-                            : null}
+                          {p?.city && p?.state ? `${p.city}, ${p.state}` : null}
                         </div>
                       </div>
                       <div className="text-right text-[11px] text-slate-500">
@@ -778,9 +893,7 @@ function ClientJourneyInner() {
                         </span>
                       )}
                       {p?.property_type && (
-                        <span className="text-slate-400">
-                          {p.property_type}
-                        </span>
+                        <span className="text-slate-400">{p.property_type}</span>
                       )}
                       {sh.relationship && (
                         <span className="inline-flex items-center rounded-full bg-black/60 border border-white/15 px-2 py-0.5 text-[11px] text-slate-100">
@@ -793,9 +906,7 @@ function ClientJourneyInner() {
                         </span>
                       )}
                       {sh.is_favorite && (
-                        <span className="text-[#EBD27A] text-xs">
-                          ★ favorite
-                        </span>
+                        <span className="text-[#EBD27A] text-xs">★ favorite</span>
                       )}
                     </div>
                   </article>
@@ -945,9 +1056,7 @@ function ClientJourneyInner() {
                             </div>
                           </>
                         ) : (
-                          <span className="text-slate-500">
-                            (no property)
-                          </span>
+                          <span className="text-slate-500">(no property)</span>
                         )}
                       </td>
                       <td className="border border-white/10 px-2 py-1 align-top">
@@ -979,4 +1088,5 @@ function ClientJourneyInner() {
 export default function ClientJourneyPage() {
   return <ClientJourneyInner />;
 }
+
 
