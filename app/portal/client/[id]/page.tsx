@@ -376,47 +376,76 @@ function ClientJourneyInner() {
         }));
 
         // 8) Listing readiness reports (read-only snapshot for the client)
-        const { data: reportRows, error: reportError } = await supabase
-          .from('listing_readiness_reports')
-          .select(
-            `
-            id,
-            client_id,
-            status,
-            score_overall,
-            property_address,
-            property_city,
-            property_state,
-            property_postal_code,
-            property_type,
-            staging_status,
-            pricing_confidence,
-            market_position,
-            created_at,
-            updated_at
-          `,
-          )
-          .eq('client_id', client.id)
-          .order('created_at', { ascending: false });
+       // 8) Listing readiness reports (read-only snapshot for the client)
+// NOTE: This table may not exist yet in some environments. If missing, treat as "no reports".
+let listingReports: ListingReadinessReport[] = [];
+try {
+  const { data: reportRows, error: reportError } = await supabase
+    .from('listing_readiness_reports')
+    .select(
+      `
+      id,
+      client_id,
+      status,
+      score_overall,
+      property_address,
+      property_city,
+      property_state,
+      property_postal_code,
+      property_type,
+      staging_status,
+      pricing_confidence,
+      market_position,
+      created_at,
+      updated_at
+    `
+    )
+    .eq('client_id', client.id)
+    .order('created_at', { ascending: false });
 
-        if (reportError) throw reportError;
+  if (reportError) {
+    const msg = String((reportError as any)?.message || reportError);
+    // PostgREST "schema cache" / missing table errors: ignore and continue
+    if (
+      msg.includes("listing_readiness_reports") ||
+      msg.toLowerCase().includes("could not find the table") ||
+      msg.toLowerCase().includes("schema cache")
+    ) {
+      listingReports = [];
+    } else {
+      throw reportError;
+    }
+  } else {
+    listingReports = (reportRows || []).map((r: any) => ({
+      id: r.id as string,
+      client_id: r.client_id as string,
+      status: (r.status as string | null) ?? null,
+      score_overall: typeof r.score_overall === 'number' ? (r.score_overall as number) : null,
+      property_address: (r.property_address as string | null) ?? null,
+      property_city: (r.property_city as string | null) ?? null,
+      property_state: (r.property_state as string | null) ?? null,
+      property_postal_code: (r.property_postal_code as string | null) ?? null,
+      property_type: (r.property_type as string | null) ?? null,
+      staging_status: (r.staging_status as string | null) ?? null,
+      pricing_confidence: (r.pricing_confidence as string | null) ?? null,
+      market_position: (r.market_position as string | null) ?? null,
+      created_at: (r.created_at as string | null) ?? null,
+      updated_at: (r.updated_at as string | null) ?? null,
+    }));
+  }
+} catch (e: any) {
+  const msg = String(e?.message || e);
+  if (
+    msg.includes("listing_readiness_reports") ||
+    msg.toLowerCase().includes("could not find the table") ||
+    msg.toLowerCase().includes("schema cache")
+  ) {
+    listingReports = [];
+  } else {
+    throw e;
+  }
+}
 
-        const listingReports: ListingReadinessReport[] = (reportRows || []).map((r: any) => ({
-          id: r.id as string,
-          client_id: r.client_id as string,
-          status: (r.status as string | null) ?? null,
-          score_overall: typeof r.score_overall === 'number' ? (r.score_overall as number) : null,
-          property_address: (r.property_address as string | null) ?? null,
-          property_city: (r.property_city as string | null) ?? null,
-          property_state: (r.property_state as string | null) ?? null,
-          property_postal_code: (r.property_postal_code as string | null) ?? null,
-          property_type: (r.property_type as string | null) ?? null,
-          staging_status: (r.staging_status as string | null) ?? null,
-          pricing_confidence: (r.pricing_confidence as string | null) ?? null,
-          market_position: (r.market_position as string | null) ?? null,
-          created_at: (r.created_at as string | null) ?? null,
-          updated_at: (r.updated_at as string | null) ?? null,
-        }));
 
         setState({
           loading: false,
