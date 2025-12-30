@@ -25,7 +25,7 @@ type Client = {
   budget_min: number | null;
   budget_max: number | null;
 
-  // criteria (agent parity – add more as you add fields)
+  // criteria (agent parity)
   property_types: string[] | null;
   min_beds: number | null;
   min_baths: number | null;
@@ -60,15 +60,6 @@ type PortalState = {
   summary: PortalSummary;
 };
 
-const PORTAL_LINKS = [
-  { href: '/portal', label: 'Dashboard' },
-  { href: '/portal/properties', label: 'Properties' },
-  { href: '/portal/profile', label: 'Profile' },
-  { href: '/portal/tours', label: 'Tours' },
-  { href: '/portal/offers', label: 'Offers' },
-  { href: '/portal/messages', label: 'Messages' },
-];
-
 const INITIAL_SUMMARY: PortalSummary = {
   savedHomes: 0,
   favoriteHomes: 0,
@@ -79,6 +70,7 @@ const INITIAL_SUMMARY: PortalSummary = {
 };
 
 type CriteriaForm = {
+  // buyer-ish (kept for now)
   preferred_locations: string;
   budget_min: string;
   budget_max: string;
@@ -86,7 +78,18 @@ type CriteriaForm = {
   min_beds: string;
   min_baths: string;
   deal_style: string;
+
+  // shared
   notes: string;
+
+  // seller-ish (display-only for now; editing not enabled)
+  seller_target: string;
+  seller_property_address: string;
+  seller_city: string;
+  seller_state: string;
+  seller_zip: string;
+  seller_timeline: string;
+  seller_listing_status: string;
 };
 
 function normalizeEmail(v: string | null | undefined) {
@@ -96,7 +99,7 @@ function normalizeEmail(v: string | null | undefined) {
 function parseNumOrNull(v: string) {
   const t = v.trim();
   if (!t) return null;
-  const n = Number(t);
+  const n = Number(t.replace(/,/g, ''));
   return Number.isFinite(n) ? n : null;
 }
 
@@ -109,16 +112,9 @@ function parseStringArray(v: string) {
 }
 
 function arraysEqual(a: string[] | null, b: string[] | null) {
-  const aa = (a || [])
-    .slice()
-    .map((x) => x.trim())
-    .filter(Boolean);
-  const bb = (b || [])
-    .slice()
-    .map((x) => x.trim())
-    .filter(Boolean);
+  const aa = (a || []).slice().map((x) => x.trim()).filter(Boolean);
+  const bb = (b || []).slice().map((x) => x.trim()).filter(Boolean);
   if (aa.length !== bb.length) return false;
-  // compare as sets (order-insensitive)
   const sa = new Set(aa.map((x) => x.toLowerCase()));
   const sb = new Set(bb.map((x) => x.toLowerCase()));
   if (sa.size !== sb.size) return false;
@@ -154,6 +150,13 @@ export default function PortalDashboardPage() {
     min_baths: '',
     deal_style: '',
     notes: '',
+    seller_target: '',
+    seller_property_address: '',
+    seller_city: '',
+    seller_state: '',
+    seller_zip: '',
+    seller_timeline: '',
+    seller_listing_status: '',
   });
 
   useEffect(() => {
@@ -197,8 +200,7 @@ export default function PortalDashboardPage() {
 
         const portalUser: PortalUser = {
           id: user.id,
-          full_name:
-            (user.user_metadata as any)?.full_name || (user.user_metadata as any)?.name || null,
+          full_name: (user.user_metadata as any)?.full_name || (user.user_metadata as any)?.name || null,
           email: (user.email ?? null) as string | null,
         };
 
@@ -232,10 +234,10 @@ export default function PortalDashboardPage() {
           .eq('email', email)
           .order('created_at', { ascending: true })
           .limit(1)
-          // @ts-ignore (some supabase versions expose maybeSingle differently)
+          // some supabase versions don’t have maybeSingle; keep your fallback below
+          // @ts-ignore
           .maybeSingle?.();
 
-        // If maybeSingle doesn't exist in your version, fallback safely:
         let client: Client | null = null;
 
         if (typeof (supabase.from('clients') as any).maybeSingle !== 'function') {
@@ -288,7 +290,7 @@ export default function PortalDashboardPage() {
           return;
         }
 
-        // Prime form (only if not editing)
+        // Prime form snapshot
         setForm({
           preferred_locations: client.preferred_locations || '',
           budget_min: client.budget_min != null ? String(client.budget_min) : '',
@@ -298,6 +300,13 @@ export default function PortalDashboardPage() {
           min_baths: client.min_baths != null ? String(client.min_baths) : '',
           deal_style: client.deal_style || '',
           notes: client.notes || '',
+          seller_target: client.seller_target != null ? String(client.seller_target) : '',
+          seller_property_address: client.seller_property_address || '',
+          seller_city: client.seller_city || '',
+          seller_state: client.seller_state || '',
+          seller_zip: client.seller_zip || '',
+          seller_timeline: client.seller_timeline || '',
+          seller_listing_status: client.seller_listing_status || '',
         });
 
         // 3) Summary counts (best-effort)
@@ -314,6 +323,7 @@ export default function PortalDashboardPage() {
               .from('tours')
               .select('id', { count: 'exact', head: true })
               .eq('client_id', client.id)
+              // NOTE: your tours table in other files uses start_time; leaving your existing logic untouched
               .gte('scheduled_for', new Date().toISOString()),
             supabase.from('offers').select('id', { count: 'exact', head: true }).eq('client_id', client.id),
             supabase
@@ -321,7 +331,6 @@ export default function PortalDashboardPage() {
               .select('id', { count: 'exact', head: true })
               .eq('client_id', client.id)
               .eq('is_read_client', false),
-            // Option B: pending criteria changes (non-fatal if table not present yet)
             supabase
               .from('client_criteria_changes')
               .select('id', { count: 'exact', head: true })
@@ -363,6 +372,19 @@ export default function PortalDashboardPage() {
 
   const { loading, error, portalUser, client, summary } = state;
 
+  // ✅ dynamic portal links so Profile goes to /portal/client/[id]
+  const portalLinks = useMemo(() => {
+    const profileHref = client?.id ? `/portal/client/${client.id}` : '/portal';
+    return [
+      { href: '/portal', label: 'Dashboard' },
+      { href: '/portal/properties', label: 'Properties' },
+      { href: profileHref, label: 'Profile' },
+      { href: '/portal/tours', label: 'Tours' },
+      { href: '/portal/offers', label: 'Offers' },
+      { href: '/portal/messages', label: 'Messages' },
+    ];
+  }, [client?.id]);
+
   const formatMoney = (v: number | null) => (v == null ? '-' : `$${v.toLocaleString()}`);
 
   const formatBudget = (min: number | null, max: number | null) => {
@@ -372,38 +394,38 @@ export default function PortalDashboardPage() {
     return `Up to ${formatMoney(max)}`;
   };
 
-  const clientTypeNorm = useMemo(() => (client?.client_type || '').toLowerCase(), [client]);
-  const isBuyer = useMemo(
-    () => clientTypeNorm === 'buyer' || clientTypeNorm === 'both' || clientTypeNorm === '',
-    [clientTypeNorm],
-  );
-  const isSeller = useMemo(() => clientTypeNorm === 'seller' || clientTypeNorm === 'both', [clientTypeNorm]);
+  const ct = (client?.client_type || '').toLowerCase();
+  const isBuyer = ct === 'buyer' || ct === 'both' || ct === '';
+  const isSeller = ct === 'seller' || ct === 'both';
 
   const criteriaLabel = useMemo(() => {
     if (!client) return 'Criteria';
-    if (clientTypeNorm === 'buyer') return 'Buyer criteria';
-    if (clientTypeNorm === 'seller') return 'Seller details';
+    if (isSeller && !isBuyer) return 'Seller details';
+    if (isBuyer && !isSeller) return 'Buyer criteria';
     return 'Criteria';
-  }, [client, clientTypeNorm]);
+  }, [client, isBuyer, isSeller]);
 
   const canEditCriteria = useMemo(() => {
-    // For now: allow edits if client is buyer or both.
-    // If you want sellers to edit later, relax this.
+    // keep your behavior: only buyer/both can submit criteria changes for now
     const t = client?.client_type;
     return t === 'buyer' || t === 'both' || t == null;
   }, [client]);
 
-  const profileHref = useMemo(() => {
-    // Profile should go to portal client home if we have a client row
-    return client?.id ? `/portal/client/${client.id}` : '/portal/profile';
-  }, [client?.id]);
+  const sellerAddressLine = useMemo(() => {
+    if (!client) return '—';
+    const addr = (client.seller_property_address || '').trim();
+    const city = (client.seller_city || '').trim();
+    const state = (client.seller_state || '').trim();
+    const zip = (client.seller_zip || '').trim();
+    const line1 = [addr, city, state].filter(Boolean).join(', ');
+    return [line1, zip].filter(Boolean).join(' ') || '—';
+  }, [client]);
 
   async function submitCriteriaChangeRequest() {
     if (!client) return;
     setSaveState({ status: 'saving' });
 
     try {
-      // Build proposed values from form
       const proposed = {
         preferred_locations: form.preferred_locations.trim() || null,
         budget_min: parseNumOrNull(form.budget_min),
@@ -415,7 +437,6 @@ export default function PortalDashboardPage() {
         notes: form.notes.trim() || null,
       };
 
-      // Compute diff (store only changed fields)
       const changes: Record<string, { from: any; to: any }> = {};
 
       const current = {
@@ -448,27 +469,18 @@ export default function PortalDashboardPage() {
         return;
       }
 
-      // Insert change request (Option B)
-      const { error: insertErr } = await supabase
-        .from('client_criteria_changes')
-        .insert({
-          client_id: client.id,
-          changed_by: 'client',
-          status: 'pending',
-          changes, // jsonb
-        } as any);
+      const { error: insertErr } = await supabase.from('client_criteria_changes').insert({
+        client_id: client.id,
+        changed_by: 'client',
+        status: 'pending',
+        changes,
+      } as any);
 
       if (insertErr) throw insertErr;
 
-      // Update UI: show proposed in-place (still pending) by updating local "client"
       setState((prev) => ({
         ...prev,
-        client: prev.client
-          ? ({
-              ...prev.client,
-              ...proposed,
-            } as Client)
-          : prev.client,
+        client: prev.client ? ({ ...prev.client, ...proposed } as Client) : prev.client,
         summary: {
           ...prev.summary,
           pendingCriteriaChanges: (prev.summary.pendingCriteriaChanges ?? 0) + 1,
@@ -520,16 +532,12 @@ export default function PortalDashboardPage() {
         {/* Portal nav */}
         <div className="border-t border-white/10 bg-black/40">
           <div className="mx-auto max-w-5xl px-4 py-2 flex flex-wrap items-center gap-2 text-xs">
-            {PORTAL_LINKS.map((link, idx) => {
-              const isActive = idx === 0;
-
-              // ✅ Profile now goes to /portal/client/[id] when we know the client
-              const href = link.href === '/portal/profile' ? profileHref : link.href;
-
+            {portalLinks.map((link) => {
+              const isActive = link.href === '/portal';
               return (
                 <Link
                   key={link.href}
-                  href={href}
+                  href={link.href}
                   className={[
                     'rounded-full px-3 py-1 border text-[11px] transition-colors',
                     isActive
@@ -546,7 +554,6 @@ export default function PortalDashboardPage() {
       </header>
 
       <section className="mx-auto max-w-5xl px-4 py-6 space-y-4">
-        {/* Status + errors */}
         {loading && (
           <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-200">
             Loading your portal…
@@ -570,7 +577,6 @@ export default function PortalDashboardPage() {
           </div>
         )}
 
-        {/* Empty state if no client record */}
         {!loading && !error && portalUser && !client && (
           <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4 text-sm text-slate-200">
             <p className="mb-1">Your agent hasn’t connected your portal yet.</p>
@@ -581,7 +587,6 @@ export default function PortalDashboardPage() {
           </div>
         )}
 
-        {/* Save feedback */}
         {!loading && !error && portalUser && client && saveState.status !== 'idle' && (
           <div
             className={[
@@ -597,15 +602,17 @@ export default function PortalDashboardPage() {
           </div>
         )}
 
-        {/* 1) Criteria / Seller details (top) */}
+        {/* 1) Criteria / Seller details */}
         {!loading && !error && portalUser && client && (
           <section className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
             <header className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-[10px] uppercase tracking-wide text-slate-400">{criteriaLabel}</div>
-                <h2 className="text-base font-semibold text-slate-50">{client.name || 'Your details'}</h2>
+                <h2 className="text-base font-semibold text-slate-50">{client.name || 'Your profile'}</h2>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Changes you submit are sent to your agent for review.
+                  {canEditCriteria
+                    ? 'Changes you submit are sent to your agent for review.'
+                    : 'Your agent will update these details for you.'}
                   {summary.pendingCriteriaChanges > 0 ? (
                     <span className="ml-2 inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-200">
                       {summary.pendingCriteriaChanges} pending review
@@ -635,7 +642,6 @@ export default function PortalDashboardPage() {
                           onClick={() => {
                             setSaveState({ status: 'idle' });
                             setIsEditing(false);
-                            // reset form back to client snapshot
                             setForm({
                               preferred_locations: client.preferred_locations || '',
                               budget_min: client.budget_min != null ? String(client.budget_min) : '',
@@ -645,6 +651,13 @@ export default function PortalDashboardPage() {
                               min_baths: client.min_baths != null ? String(client.min_baths) : '',
                               deal_style: client.deal_style || '',
                               notes: client.notes || '',
+                              seller_target: client.seller_target != null ? String(client.seller_target) : '',
+                              seller_property_address: client.seller_property_address || '',
+                              seller_city: client.seller_city || '',
+                              seller_state: client.seller_state || '',
+                              seller_zip: client.seller_zip || '',
+                              seller_timeline: client.seller_timeline || '',
+                              seller_listing_status: client.seller_listing_status || '',
                             });
                           }}
                           className="rounded-lg border border-white/20 bg-black/50 px-3 py-1.5 text-[11px] text-slate-100 hover:bg-white/10"
@@ -667,12 +680,12 @@ export default function PortalDashboardPage() {
               </div>
             </header>
 
-            {/* ✅ VIEW MODE */}
+            {/* DISPLAY MODE */}
             {!isEditing ? (
-              <>
-                {/* Buyer-style cards (buyer/both) */}
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                {/* Buyer cards */}
                 {isBuyer && (
-                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                  <>
                     <div className="rounded-xl border border-white/10 bg-black/30 p-3">
                       <div className="text-[10px] text-slate-400 uppercase tracking-wide">Preferred areas</div>
                       <div className="text-slate-100 mt-0.5">{client.preferred_locations || 'Not specified'}</div>
@@ -693,8 +706,7 @@ export default function PortalDashboardPage() {
                     <div className="rounded-xl border border-white/10 bg-black/30 p-3">
                       <div className="text-[10px] text-slate-400 uppercase tracking-wide">Beds / Baths</div>
                       <div className="text-slate-100 mt-0.5">
-                        {client.min_beds != null ? `${client.min_beds}+ beds` : '—'}{' '}
-                        <span className="text-slate-500">•</span>{' '}
+                        {client.min_beds != null ? `${client.min_beds}+ beds` : '—'} <span className="text-slate-500">•</span>{' '}
                         {client.min_baths != null ? `${client.min_baths}+ baths` : '—'}
                       </div>
                     </div>
@@ -703,26 +715,15 @@ export default function PortalDashboardPage() {
                       <div className="text-[10px] text-slate-400 uppercase tracking-wide">Deal style</div>
                       <div className="text-slate-100 mt-0.5">{client.deal_style || 'Not specified'}</div>
                     </div>
-
-                    <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Notes</div>
-                      <div className="text-slate-100 mt-0.5 line-clamp-4">{client.notes || '—'}</div>
-                    </div>
-                  </div>
+                  </>
                 )}
 
-                {/* ✅ Seller-style cards (seller/both) */}
+                {/* Seller cards */}
                 {isSeller && (
-                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
-                    <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:col-span-2 lg:col-span-2">
+                  <>
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3 lg:col-span-2">
                       <div className="text-[10px] text-slate-400 uppercase tracking-wide">Property</div>
-                      <div className="text-slate-100 mt-0.5">
-                        {client.seller_property_address || 'Not specified'}
-                      </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        {[client.seller_city, client.seller_state].filter(Boolean).join(', ')}
-                        {client.seller_zip ? ` ${client.seller_zip}` : ''}
-                      </div>
+                      <div className="text-slate-100 mt-0.5">{sellerAddressLine}</div>
                     </div>
 
                     <div className="rounded-xl border border-white/10 bg-black/30 p-3">
@@ -730,25 +731,26 @@ export default function PortalDashboardPage() {
                       <div className="text-slate-100 mt-0.5">{formatMoney(client.seller_target)}</div>
                     </div>
 
+                    <div className="rounded-xl border border-white/10 bg-black/30 p-3 lg:col-span-2">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Timeline</div>
+                      <div className="text-slate-100 mt-0.5">{client.seller_timeline || '—'}</div>
+                    </div>
+
                     <div className="rounded-xl border border-white/10 bg-black/30 p-3">
                       <div className="text-[10px] text-slate-400 uppercase tracking-wide">Listing status</div>
-                      <div className="text-slate-100 mt-0.5">{client.seller_listing_status || 'Not specified'}</div>
+                      <div className="text-slate-100 mt-0.5">{client.seller_listing_status || '—'}</div>
                     </div>
-
-                    <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:col-span-2">
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Timeline</div>
-                      <div className="text-slate-100 mt-0.5">{client.seller_timeline || 'Not specified'}</div>
-                    </div>
-
-                    <div className="rounded-xl border border-white/10 bg-black/30 p-3 sm:col-span-2 lg:col-span-3">
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wide">Notes</div>
-                      <div className="text-slate-100 mt-0.5 line-clamp-4">{client.notes || '—'}</div>
-                    </div>
-                  </div>
+                  </>
                 )}
-              </>
+
+                {/* Shared notes */}
+                <div className="rounded-xl border border-white/10 bg-black/30 p-3 lg:col-span-3">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wide">Notes</div>
+                  <div className="text-slate-100 mt-0.5 line-clamp-4">{client.notes || '—'}</div>
+                </div>
+              </div>
             ) : (
-              /* EDIT MODE (buyer-only for now, per canEditCriteria) */
+              // EDIT MODE (buyers only)
               <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
                 <label className="space-y-1">
                   <div className="text-[10px] text-slate-400 uppercase tracking-wide">Preferred areas</div>
@@ -842,7 +844,6 @@ export default function PortalDashboardPage() {
         {/* 2/3/4) Saved properties, Tours & offers, Messages */}
         {!loading && !error && portalUser && client && (
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-xs">
-            {/* Saved Properties */}
             <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 flex flex-col justify-between">
               <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Saved homes</div>
               <div className="flex items-end justify-between gap-2">
@@ -859,7 +860,6 @@ export default function PortalDashboardPage() {
               )}
             </div>
 
-            {/* Tours & Offers */}
             <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 flex flex-col justify-between">
               <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Tours & offers</div>
               <div className="flex items-end justify-between gap-2">
@@ -883,7 +883,6 @@ export default function PortalDashboardPage() {
               </div>
             </div>
 
-            {/* Messages */}
             <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 flex flex-col justify-between">
               <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Messages</div>
               <div className="flex items-end justify-between gap-2">
