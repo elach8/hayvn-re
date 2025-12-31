@@ -453,27 +453,39 @@ export default function ClientsPage() {
                         )}
                       </td>
 
+                      {/* ✅ ONLY SURGICAL CHANGE: Actions column now includes a prominent Matches button + mobile-friendly layout */}
                       <td className="px-3 py-2 border-b border-white/5 align-top">
-                        <div className="flex justify-end gap-2">
-                          <Link href={`/clients/${c.id}`} className="text-xs text-[#EBD27A] hover:underline">
-                            View
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-2">
+                          <Link href={`/matches?client=${encodeURIComponent(c.id)}`} className="w-full sm:w-auto">
+                            <Button
+                              variant="secondary"
+                              className="w-full sm:w-auto text-xs px-3 py-1.5"
+                            >
+                              Matches
+                            </Button>
                           </Link>
 
-                          <Link
-                            href={`/clients/${c.id}/edit`}
-                            className="text-xs text-slate-200 hover:text-white hover:underline"
-                          >
-                            Edit
-                          </Link>
+                          <div className="flex justify-end gap-2 sm:gap-3">
+                            <Link href={`/clients/${c.id}`} className="text-xs text-[#EBD27A] hover:underline">
+                              View
+                            </Link>
 
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(c)}
-                            disabled={deletingId === c.id}
-                            className="text-xs text-red-300 hover:text-red-200 hover:underline disabled:opacity-50"
-                          >
-                            {deletingId === c.id ? 'Deleting…' : 'Delete'}
-                          </button>
+                            <Link
+                              href={`/clients/${c.id}/edit`}
+                              className="text-xs text-slate-200 hover:text-white hover:underline"
+                            >
+                              Edit
+                            </Link>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(c)}
+                              disabled={deletingId === c.id}
+                              className="text-xs text-red-300 hover:text-red-200 hover:underline disabled:opacity-50"
+                            >
+                              {deletingId === c.id ? 'Deleting…' : 'Delete'}
+                            </button>
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -512,6 +524,7 @@ function FilterPill({
     </button>
   );
 }
+
 
 
 

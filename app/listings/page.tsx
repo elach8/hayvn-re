@@ -2,82 +2,81 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabaseClient';
 import RequireAuth from '../components/RequireAuth';
-import Link from 'next/link';
 
-type Listing = {
-  id: string;
-  brokerage_id: string;
-  idx_connection_id: string | null;
-  mls_number: string;
-  mls_source: string | null;
-  status: string | null;
-  list_date: string | null;
-  close_date: string | null;
-  list_price: number | null;
-  close_price: number | null;
-  beds: number | null;
-  baths: number | null;
-  sqft: number | null;
-  city: string | null;
-  state: string | null;
-  postal_code: string | null;
-  last_seen_at: string | null;
-};
+type AgentRole = 'broker' | 'agent' | 'assistant' | 'admin';
 
 type Agent = {
   id: string;
   brokerage_id: string | null;
-  role: string | null;
+  role: AgentRole | null;
 };
 
-function formatMoney(n: number | null) {
-  if (n == null) return '—';
-  return n.toLocaleString(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  });
-}
+type ViewMode = 'mine' | 'brokerage';
 
-function formatDate(iso: string | null) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString();
-}
+type Property = {
+  id: string;
+  address: string;
+  city: string | null;
+  state: string | null;
+  list_price: number | null;
+  property_type: string | null;
+  pipeline_stage: string | null;
+  created_at: string | null;
+
+  // ownership fields
+  agent_id: string | null;
+  brokerage_id: string | null;
+};
 
 function ListingsInner() {
-  const [loading, setLoading] = useState(true);
   const [agent, setAgent] = useState<Agent | null>(null);
-  const [listings, setListings] = useState<Listing[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'sold'>('all');
-  const [searchCity, setSearchCity] = useState('');
-  const [searchMls, setSearchMls] = useState('');
-  const [limit, setLimit] = useState(50);
+  const [viewMode, setViewMode] = useState<ViewMode>('mine');
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setError(null);
-        setLoading(true);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [reloading, setReloading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
-        if (sessionError) throw sessionError;
-        if (!session) {
-          setError('Not signed in');
-          setLoading(false);
-          return;
-        }
+  const isBroker = agent?.role === 'broker';
+  const canBrokerageView = !!(isBroker && agent?.brokerage_id);
 
-        const user = session.user;
+  const formatPrice = (v: number | null) => (v == null ? '-' : `$${v.toLocaleString()}`);
 
-        // Load agent to get brokerage_id
+  const formatDate = (iso: string | null) => {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '-';
+    return d.toLocaleDateString();
+  };
+
+  const load = async (mode: ViewMode, existingAgent?: Agent | null) => {
+    try {
+      setLoadError(null);
+      if (!agent && !existingAgent) setLoading(true);
+      setReloading(true);
+
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) throw sessionError;
+      if (!session) {
+        setLoadError('Not signed in');
+        setProperties([]);
+        setLoading(false);
+        setReloading(false);
+        return;
+      }
+
+      const user = session.user;
+
+      // Load agent row (or reuse)
+      let a = existingAgent ?? null;
+      if (!a) {
         const { data: agentRow, error: agentError } = await supabase
           .from('agents')
           .select('id, brokerage_id, role')
@@ -86,245 +85,240 @@ function ListingsInner() {
 
         if (agentError) throw agentError;
         if (!agentRow) {
-          setError('No agent record found for this user.');
+          setLoadError('No agent record found for this user.');
+          setProperties([]);
           setLoading(false);
+          setReloading(false);
           return;
         }
-
-        const typedAgent = agentRow as Agent;
-        setAgent(typedAgent);
-
-        if (!typedAgent.brokerage_id) {
-          setError('You are not linked to a brokerage yet, so there are no MLS listings to show.');
-          setListings([]);
-          setLoading(false);
-          return;
-        }
-
-        // Basic initial load: most recent listings for this brokerage
-        const { data: listingRows, error: listingError } = await supabase
-          .from('mls_listings')
-          .select(
-            'id, brokerage_id, idx_connection_id, mls_number, mls_source, status, list_date, close_date, list_price, close_price, beds, baths, sqft, city, state, postal_code, last_seen_at'
-          )
-          .eq('brokerage_id', typedAgent.brokerage_id)
-          .order('last_seen_at', { ascending: false })
-          .limit(limit);
-
-        if (listingError) throw listingError;
-
-        setListings((listingRows || []) as Listing[]);
-        setLoading(false);
-      } catch (err: any) {
-        console.error('Listings page load error:', err);
-        setError(err?.message ?? 'Failed to load listings');
-        setLoading(false);
+        a = agentRow as Agent;
+        setAgent(a);
+      } else {
+        setAgent(a);
       }
-    };
 
-    load();
-  }, [limit]);
+      // If someone toggles brokerage without permissions, fall back to mine
+      const effectiveMode: ViewMode =
+        mode === 'brokerage' && !(a.role === 'broker' && a.brokerage_id) ? 'mine' : mode;
 
-  const filtered = listings.filter((l) => {
-    if (statusFilter !== 'all') {
-      const s = (l.status || '').toLowerCase();
-      if (statusFilter === 'active' && s !== 'active') return false;
-      if (statusFilter === 'pending' && s !== 'pending') return false;
-      if (statusFilter === 'sold' && s !== 'sold') return false;
+      // Query properties (these are the "Listings" we manage)
+      let q = supabase
+        .from('properties')
+        .select(
+          `
+          id,
+          address,
+          city,
+          state,
+          list_price,
+          property_type,
+          pipeline_stage,
+          created_at,
+          agent_id,
+          brokerage_id
+        `,
+        )
+        .order('created_at', { ascending: false });
+
+      if (effectiveMode === 'mine') {
+        q = q.eq('agent_id', a.id);
+      } else {
+        q = q.eq('brokerage_id', a.brokerage_id as string);
+      }
+
+      const { data, error } = await q;
+
+      if (error) throw error;
+
+      setProperties((data || []) as Property[]);
+      setLoading(false);
+      setReloading(false);
+      setViewMode(effectiveMode);
+    } catch (err: any) {
+      console.error('Listings load error:', err);
+      setLoadError(err?.message ?? 'Failed to load listings');
+      setProperties([]);
+      setLoading(false);
+      setReloading(false);
     }
+  };
 
-    if (searchCity.trim()) {
-      const c = (l.city || '').toLowerCase();
-      if (!c.includes(searchCity.trim().toLowerCase())) return false;
-    }
+  useEffect(() => {
+    load('mine');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    if (searchMls.trim()) {
-      const m = (l.mls_number || '').toLowerCase();
-      if (!m.includes(searchMls.trim().toLowerCase())) return false;
-    }
-
-    return true;
-  });
+  const onChangeView = async (mode: ViewMode) => {
+    setViewMode(mode);
+    await load(mode, agent);
+  };
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
-      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
-              MLS Listings (internal)
-            </h1>
-            <p className="text-sm text-slate-300">
-              View listings synced into Hayvn-RE for your brokerage. This is an internal
-              tool to verify IDX data is flowing correctly.
-            </p>
-          </div>
-          <Link
-            href="/settings/idx"
-            className="inline-flex items-center rounded-lg border border-slate-600 bg-black/40 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-400"
-          >
-            MLS / IDX settings
-          </Link>
-        </header>
-
-        {error && (
-          <div className="rounded-2xl border border-red-500/40 bg-red-950/40 px-4 py-3 text-xs text-red-100">
-            {error}
-          </div>
-        )}
-
-        {!error && agent && !loading && listings.length === 0 && (
-          <section className="rounded-2xl border border-slate-600/60 bg-black/40 p-4 space-y-2">
-            <h2 className="text-sm font-medium text-slate-50">No listings yet</h2>
-            <p className="text-xs text-slate-300">
-              We don&apos;t see any MLS listings stored for your brokerage yet.
-              Once your broker configures an IDX connection and a sync runs, listings
-              will start to appear here.
-            </p>
-          </section>
-        )}
-
-        {/* Filters */}
-        <section className="rounded-2xl border border-white/10 bg-black/40 p-4 space-y-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="space-y-1">
-              <p className="text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                Status
-              </p>
-              <div className="inline-flex rounded-full bg-black/60 border border-white/10 p-0.5">
-                {(['all', 'active', 'pending', 'sold'] as const).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setStatusFilter(s)}
-                    className={`px-2.5 py-1 text-[11px] rounded-full transition ${
-                      statusFilter === s
-                        ? 'bg-slate-100 text-black'
-                        : 'text-slate-300 hover:bg-white/5'
-                    }`}
-                  >
-                    {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <p className="text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                City
-              </p>
-              <input
-                value={searchCity}
-                onChange={(e) => setSearchCity(e.target.value)}
-                placeholder="e.g. Los Angeles"
-                className="w-40 rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <p className="text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                MLS #
-              </p>
-              <input
-                value={searchMls}
-                onChange={(e) => setSearchMls(e.target.value)}
-                placeholder="Search MLS number"
-                className="w-40 rounded-lg border border-white/15 bg-black/70 px-3 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <p className="text-[11px] font-medium text-slate-300 uppercase tracking-wide">
-                Rows
-              </p>
-              <select
-                value={limit}
-                onChange={(e) => setLimit(Number(e.target.value) || 50)}
-                className="rounded-lg border border-white/15 bg-black/70 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-slate-400"
-              >
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-            </div>
-          </div>
-
-          <p className="text-[11px] text-slate-500">
-            Showing {filtered.length} of {listings.length} loaded records for your brokerage.
+    <main className="min-h-screen max-w-5xl text-slate-100">
+      {/* Header */}
+      <header className="flex items-center justify-between mb-5 gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
+            Listings
+          </h1>
+          <p className="text-sm text-slate-300 mt-1 max-w-xl">
+            Properties you’re listing (agent view) with an optional brokerage view for brokers.
           </p>
-        </section>
 
-        {/* Table */}
-        {filtered.length > 0 && (
-          <section className="rounded-2xl border border-white/10 bg-black/40 p-4 overflow-x-auto">
-            <table className="min-w-full text-xs text-left">
-              <thead>
-                <tr className="border-b border-white/10 text-[11px] text-slate-300 uppercase tracking-wide">
-                  <th className="py-2 pr-3">MLS #</th>
-                  <th className="py-2 pr-3">Status</th>
-                  <th className="py-2 pr-3">Price</th>
-                  <th className="py-2 pr-3">Beds</th>
-                  <th className="py-2 pr-3">Baths</th>
-                  <th className="py-2 pr-3">SqFt</th>
-                  <th className="py-2 pr-3">City</th>
-                  <th className="py-2 pr-3">State</th>
-                  <th className="py-2 pr-3">Zip</th>
-                  <th className="py-2 pr-3">List date</th>
-                  <th className="py-2 pr-3">Last seen</th>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-full border border-white/10 bg-black/40 p-1 text-xs shadow-sm">
+              <button
+                type="button"
+                onClick={() => onChangeView('mine')}
+                className={
+                  'px-3 py-1 rounded-full transition-colors ' +
+                  (viewMode === 'mine'
+                    ? 'bg-[#EBD27A] text-slate-900 font-semibold shadow-sm'
+                    : 'text-slate-300 hover:bg-white/5')
+                }
+              >
+                My listings
+              </button>
+
+              {canBrokerageView && (
+                <button
+                  type="button"
+                  onClick={() => onChangeView('brokerage')}
+                  className={
+                    'px-3 py-1 rounded-full transition-colors ' +
+                    (viewMode === 'brokerage'
+                      ? 'bg-[#EBD27A] text-slate-900 font-semibold shadow-sm'
+                      : 'text-slate-300 hover:bg-white/5')
+                  }
+                >
+                  Brokerage
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => load(viewMode, agent)}
+              className="inline-flex items-center rounded-full border border-white/10 bg-black/25 px-3 py-1 text-[11px] text-slate-200 hover:border-white/20 hover:bg-white/5 transition-colors"
+            >
+              {reloading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+        </div>
+
+        <Link
+          href="/properties/new"
+          className="inline-flex items-center rounded-md border border-white/20 bg-white/5 px-3 py-1.5 text-xs sm:text-sm font-medium text-slate-50 hover:bg-white/10 whitespace-nowrap"
+        >
+          + New property
+        </Link>
+      </header>
+
+      {/* States */}
+      {loading && (
+        <div className="rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-300">
+          Loading listings…
+        </div>
+      )}
+
+      {loadError && (
+        <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100 mb-3">
+          Error loading listings: {loadError}
+        </div>
+      )}
+
+      {!loading && !loadError && properties.length === 0 && (
+        <div className="rounded-lg border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-300">
+          No listings yet. Use the <span className="font-semibold">New property</span>{' '}
+          button above to add one.
+        </div>
+      )}
+
+      {/* Table */}
+      {!loading && !loadError && properties.length > 0 && (
+        <section className="rounded-xl border border-white/10 bg-black/40 p-3 sm:p-4">
+          <div className="flex items-center justify-between mb-3 text-xs text-slate-400">
+            <span>
+              Showing{' '}
+              <span className="font-semibold text-slate-100">{properties.length}</span>{' '}
+              {viewMode === 'brokerage' ? 'brokerage' : 'agent'} listings
+            </span>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-white/10 bg-black/40">
+            <table className="min-w-full text-xs sm:text-sm">
+              <thead className="bg-white/5 text-slate-300">
+                <tr>
+                  <th className="border-b border-white/10 px-3 py-2 text-left font-medium">
+                    Address
+                  </th>
+                  <th className="border-b border-white/10 px-3 py-2 text-left font-medium">
+                    Type
+                  </th>
+                  <th className="border-b border-white/10 px-3 py-2 text-left font-medium">
+                    Stage
+                  </th>
+                  <th className="border-b border-white/10 px-3 py-2 text-right font-medium">
+                    List price
+                  </th>
+                  <th className="border-b border-white/10 px-3 py-2 text-left font-medium">
+                    Created
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((l) => (
-                  <tr
-                    key={l.id}
-                    className="border-b border-white/5 last:border-b-0 hover:bg-white/5"
-                  >
-                    <td className="py-2 pr-3 font-mono text-[11px] text-slate-100">
-                      {l.mls_number}
+                {properties.map((p) => (
+                  <tr key={p.id} className="hover:bg-white/5 text-slate-100">
+                    <td className="border-b border-white/5 px-3 py-2 align-top">
+                      {/* Reuse the existing property detail page */}
+                      <Link
+                        href={`/properties/${p.id}`}
+                        className="text-[#EBD27A] hover:underline font-medium"
+                      >
+                        {p.address}
+                      </Link>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        {p.city || ''}
+                        {p.state ? `, ${p.state}` : ''}
+                      </div>
                     </td>
-                    <td className="py-2 pr-3 capitalize text-slate-100">
-                      {l.status || '—'}
+
+                    <td className="border-b border-white/5 px-3 py-2 align-top">
+                      {p.property_type ? (
+                        <span className="inline-flex items-center rounded-full bg-white/5 px-2 py-0.5 text-[11px] capitalize text-slate-100">
+                          {p.property_type}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-slate-500">—</span>
+                      )}
                     </td>
-                    <td className="py-2 pr-3 text-slate-100">
-                      {formatMoney(l.list_price ?? l.close_price)}
+
+                    <td className="border-b border-white/5 px-3 py-2 align-top">
+                      {p.pipeline_stage ? (
+                        <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-200 capitalize">
+                          {p.pipeline_stage}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-slate-500">—</span>
+                      )}
                     </td>
-                    <td className="py-2 pr-3 text-slate-100">
-                      {l.beds ?? '—'}
+
+                    <td className="border-b border-white/5 px-3 py-2 text-right align-top">
+                      <span className="font-medium">{formatPrice(p.list_price)}</span>
                     </td>
-                    <td className="py-2 pr-3 text-slate-100">
-                      {l.baths ?? '—'}
-                    </td>
-                    <td className="py-2 pr-3 text-slate-100">
-                      {l.sqft ? l.sqft.toLocaleString() : '—'}
-                    </td>
-                    <td className="py-2 pr-3 text-slate-100">
-                      {l.city || '—'}
-                    </td>
-                    <td className="py-2 pr-3 text-slate-100">
-                      {l.state || '—'}
-                    </td>
-                    <td className="py-2 pr-3 text-slate-100">
-                      {l.postal_code || '—'}
-                    </td>
-                    <td className="py-2 pr-3 text-slate-100">
-                      {formatDate(l.list_date)}
-                    </td>
-                    <td className="py-2 pr-3 text-slate-100">
-                      {formatDate(l.last_seen_at)}
+
+                    <td className="border-b border-white/5 px-3 py-2 align-top text-slate-300">
+                      <span className="text-[11px] sm:text-xs">
+                        {formatDate(p.created_at)}
+                      </span>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </section>
-        )}
-
-        {loading && (
-          <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-slate-200">
-            Loading listings…
           </div>
-        )}
-      </div>
+        </section>
+      )}
     </main>
   );
 }

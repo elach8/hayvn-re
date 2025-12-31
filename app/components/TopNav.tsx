@@ -1,3 +1,4 @@
+// /app/components/TopNav.tsx  (or wherever your TopNav lives)
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -7,16 +8,18 @@ import { useRouter, usePathname } from 'next/navigation';
 
 const navLinks = [
   { href: '/dashboard', label: 'Dashboard' },
-  { href: '/matches', label: 'Matches' },
+
+  // ✅ removed: Matches
   { href: '/clients', label: 'Clients' },
-  { href: '/properties', label: 'Properties' },
-  { href: '/pipeline', label: 'Pipeline' },
+
+  // ✅ moved: Listings right after Clients
+  { href: '/listings', label: 'Listings' },
+
+  // ✅ removed: Properties
+  // ✅ removed: Pipeline
 
   // Buyer workflow
   { href: '/tours', label: 'Tours' },
-
-  // Seller workflow hub (NEW)
-  { href: '/listings', label: 'Listings' },
 
   { href: '/offers', label: 'Offers' },
   { href: '/tools', label: 'Tools' },
@@ -190,4 +193,5 @@ export function TopNav() {
     </>
   );
 }
+
 

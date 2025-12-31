@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 
@@ -168,6 +168,7 @@ const MATCHES_RESTORE_KEY = 'hayvnre:matches:restore';
 
 export default function MatchesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -185,6 +186,13 @@ export default function MatchesPage() {
   // restore target card
   const restoreFocusIdRef = useRef<string | null>(null);
   const restoreScrollYRef = useRef<number | null>(null);
+
+  // ✅ NEW: capture the incoming ?client=... param once
+  const initialClientParamRef = useRef<string | null>(null);
+  if (initialClientParamRef.current === null) {
+    const qp = searchParams?.get('client');
+    initialClientParamRef.current = qp ? qp : '';
+  }
 
   const selectedClient = useMemo(
     () => clients.find((c) => c.id === selectedClientId) ?? null,
@@ -216,79 +224,6 @@ export default function MatchesPage() {
       return null;
     }
   };
-
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setAuthError(null);
-      setError(null);
-
-      const {
-        data: { user },
-        error: userErr,
-      } = await supabase.auth.getUser();
-
-      if (userErr || !user) {
-        setAuthError('You must be signed in as an agent to view Matches.');
-        setLoading(false);
-        return;
-      }
-
-      const { data: agentRow, error: agentErr } = await supabase
-        .from('agents')
-        .select('id, brokerage_id')
-        .eq('id', user.id)
-        .single();
-
-      if (agentErr) {
-        setError(agentErr.message);
-        setLoading(false);
-        return;
-      }
-
-      const a: AgentRow = {
-        id: agentRow.id,
-        brokerage_id: agentRow.brokerage_id ?? null,
-      };
-      setAgent(a);
-
-      let q = supabase
-        .from('clients')
-        .select(
-          'id, name, stage, client_type, budget_min, budget_max, preferred_locations, brokerage_id, agent_id'
-        )
-        .order('created_at', { ascending: false })
-        .limit(500);
-
-      if (a.brokerage_id) {
-        q = q.or(`brokerage_id.eq.${a.brokerage_id},agent_id.eq.${a.id}`);
-      } else {
-        q = q.eq('agent_id', a.id);
-      }
-
-      const { data: clientRows, error: clientsErr } = await q;
-      if (clientsErr) {
-        setError(clientsErr.message);
-        setLoading(false);
-        return;
-      }
-
-      setClients((clientRows ?? []) as ClientRow[]);
-
-      // Restore selection + scroll/card focus if coming back from detail
-      const restore = readRestoreState();
-      if (restore?.selectedClientId) {
-        setSelectedClientId(restore.selectedClientId);
-        restoreFocusIdRef.current = restore.focusRecId ?? null;
-        restoreScrollYRef.current =
-          typeof restore.scrollY === 'number' ? restore.scrollY : null;
-      }
-
-      setLoading(false);
-    };
-
-    load();
-  }, []);
 
   const loadRecommendations = async (clientId: string) => {
     setRecsLoading(true);
@@ -346,6 +281,87 @@ export default function MatchesPage() {
     setRecsLoading(false);
   };
 
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      setAuthError(null);
+      setError(null);
+
+      const {
+        data: { user },
+        error: userErr,
+      } = await supabase.auth.getUser();
+
+      if (userErr || !user) {
+        setAuthError('You must be signed in as an agent to view Matches.');
+        setLoading(false);
+        return;
+      }
+
+      const { data: agentRow, error: agentErr } = await supabase
+        .from('agents')
+        .select('id, brokerage_id')
+        .eq('id', user.id)
+        .single();
+
+      if (agentErr) {
+        setError(agentErr.message);
+        setLoading(false);
+        return;
+      }
+
+      const a: AgentRow = {
+        id: agentRow.id,
+        brokerage_id: agentRow.brokerage_id ?? null,
+      };
+      setAgent(a);
+
+      let q = supabase
+        .from('clients')
+        .select('id, name, stage, client_type, budget_min, budget_max, preferred_locations, brokerage_id, agent_id')
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (a.brokerage_id) {
+        q = q.or(`brokerage_id.eq.${a.brokerage_id},agent_id.eq.${a.id}`);
+      } else {
+        q = q.eq('agent_id', a.id);
+      }
+
+      const { data: clientRows, error: clientsErr } = await q;
+      if (clientsErr) {
+        setError(clientsErr.message);
+        setLoading(false);
+        return;
+      }
+
+      const rows = (clientRows ?? []) as ClientRow[];
+      setClients(rows);
+
+      // ✅ NEW: priority order for initial selection
+      // 1) query param ?client=...
+      // 2) restore state from sessionStorage (coming back from detail)
+      // 3) none
+      const qpClientId = (initialClientParamRef.current || '').trim();
+      if (qpClientId) {
+        setSelectedClientId(qpClientId);
+      } else {
+        const restore = readRestoreState();
+        if (restore?.selectedClientId) {
+          setSelectedClientId(restore.selectedClientId);
+          restoreFocusIdRef.current = restore.focusRecId ?? null;
+          restoreScrollYRef.current =
+            typeof restore.scrollY === 'number' ? restore.scrollY : null;
+        }
+      }
+
+      setLoading(false);
+    };
+
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // After we load recs, if we have a restore scroll/card target, apply it once.
   useEffect(() => {
     if (recsLoading) return;
@@ -384,11 +400,17 @@ export default function MatchesPage() {
     }
   };
 
-  // If selectedClientId is restored on mount, load recs automatically
+  // ✅ UPDATED: if selectedClientId is set (from query param OR restore OR manual), load recs automatically
   useEffect(() => {
     if (!selectedClientId) return;
-    // If we already loaded recs for this selection, skip
+
+    // Avoid double-fetch when user manually selected and we already fetched in handleSelectClient
+    if (recsLoading) return;
+
+    // If we already have recs for this client, don't re-fetch
+    // (We can’t perfectly verify client_id per row because shape is typed, but this avoids the common double-load)
     if (recs.length > 0) return;
+
     loadRecommendations(selectedClientId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClientId]);
@@ -414,6 +436,7 @@ export default function MatchesPage() {
       return;
     }
 
+    setRecs([]); // ✅ ensure the "auto-load" effect doesn't get blocked by stale rows
     await loadRecommendations(selectedClientId);
     setRefreshing(false);
   };
