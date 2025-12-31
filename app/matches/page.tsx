@@ -1,7 +1,7 @@
 // /app/matches/page.tsx
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -166,7 +166,7 @@ function scoreLabel(score: number) {
 
 const MATCHES_RESTORE_KEY = 'hayvnre:matches:restore';
 
-export default function MatchesPage() {
+function MatchesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -187,7 +187,7 @@ export default function MatchesPage() {
   const restoreFocusIdRef = useRef<string | null>(null);
   const restoreScrollYRef = useRef<number | null>(null);
 
-  // ✅ NEW: capture the incoming ?client=... param once
+  // ✅ capture the incoming ?client=... param once
   const initialClientParamRef = useRef<string | null>(null);
   if (initialClientParamRef.current === null) {
     const qp = searchParams?.get('client');
@@ -318,7 +318,9 @@ export default function MatchesPage() {
 
       let q = supabase
         .from('clients')
-        .select('id, name, stage, client_type, budget_min, budget_max, preferred_locations, brokerage_id, agent_id')
+        .select(
+          'id, name, stage, client_type, budget_min, budget_max, preferred_locations, brokerage_id, agent_id'
+        )
         .order('created_at', { ascending: false })
         .limit(500);
 
@@ -338,10 +340,9 @@ export default function MatchesPage() {
       const rows = (clientRows ?? []) as ClientRow[];
       setClients(rows);
 
-      // ✅ NEW: priority order for initial selection
+      // ✅ priority order for initial selection:
       // 1) query param ?client=...
       // 2) restore state from sessionStorage (coming back from detail)
-      // 3) none
       const qpClientId = (initialClientParamRef.current || '').trim();
       if (qpClientId) {
         setSelectedClientId(qpClientId);
@@ -378,9 +379,7 @@ export default function MatchesPage() {
     if (focusId) {
       const el = document.getElementById(`rec-${focusId}`);
       if (el) {
-        // align card nicely
         el.scrollIntoView({ block: 'start' });
-        // small offset for header spacing
         window.scrollBy({ top: -12, left: 0 });
         return;
       }
@@ -400,7 +399,7 @@ export default function MatchesPage() {
     }
   };
 
-  // ✅ UPDATED: if selectedClientId is set (from query param OR restore OR manual), load recs automatically
+  // If selectedClientId is set (from query param OR restore OR manual), load recs automatically
   useEffect(() => {
     if (!selectedClientId) return;
 
@@ -408,7 +407,6 @@ export default function MatchesPage() {
     if (recsLoading) return;
 
     // If we already have recs for this client, don't re-fetch
-    // (We can’t perfectly verify client_id per row because shape is typed, but this avoids the common double-load)
     if (recs.length > 0) return;
 
     loadRecommendations(selectedClientId);
@@ -436,7 +434,7 @@ export default function MatchesPage() {
       return;
     }
 
-    setRecs([]); // ✅ ensure the "auto-load" effect doesn't get blocked by stale rows
+    setRecs([]); // ensure auto-load effect doesn't get blocked by stale rows
     await loadRecommendations(selectedClientId);
     setRefreshing(false);
   };
@@ -829,3 +827,23 @@ export default function MatchesPage() {
     </main>
   );
 }
+
+export default function MatchesPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-slate-50">
+          <div className="max-w-6xl mx-auto px-4 py-6">
+            <Card>
+              <p className="text-sm text-slate-300">Loading…</p>
+            </Card>
+          </div>
+        </main>
+      }
+    >
+      <MatchesPageInner />
+    </Suspense>
+  );
+}
+
+
