@@ -13,8 +13,8 @@ function safeStr(v: any): string | null {
 }
 
 /**
- * Canonical key to group “same photo different size” variants.
- * IMPORTANT: keep query stripping (many CDNs use w=/h= params).
+ * Group “same photo different size” variants.
+ * - strip query+hash for grouping
  */
 function canonicalPhotoKey(url: string) {
   const s = safeStr(url) ?? '';
@@ -24,29 +24,62 @@ function canonicalPhotoKey(url: string) {
   return noQuery.trim();
 }
 
-function photoQualityPenalty(url: string) {
+/**
+ * STRONG signals that something is a thumbnail.
+ * IMPORTANT: Do NOT treat query params like w=/width= as "thumb" by default,
+ * because many systems serve full images with those params.
+ */
+function isThumbStrong(url: string) {
   const s = (safeStr(url) ?? '').toLowerCase();
-  if (!s) return 999;
+  if (!s) return false;
 
-  // higher penalty = worse quality
-  let penalty = 0;
+  // Strong thumb markers
+  if (s.includes('thumbnail') || s.includes('/thumbnail') || s.includes('thumb')) return true;
+  if (s.includes('/small/') || s.includes('small_') || s.includes('_small')) return true;
+  if (s.includes('/tiny/') || s.includes('tiny_') || s.includes('_tiny')) return true;
 
-  if (s.includes('thumbnail') || s.includes('/thumbnail') || s.includes('thumb')) penalty += 50;
-  if (s.includes('small') || s.includes('tiny')) penalty += 20;
-
-  // common resize params in query strings
-  if (s.includes('width=') || s.includes('w=') || s.includes('height=') || s.includes('h=')) penalty += 15;
-  if (s.includes('resize') || s.includes('resized') || s.includes('fit=')) penalty += 15;
-
-  // sometimes CDNs label large explicitly
-  if (s.includes('large') || s.includes('full')) penalty -= 10;
-
-  return penalty;
+  return false;
 }
 
-function isLikelyThumb(url: string) {
-  // Use the same signals as penalty, but boolean
-  return photoQualityPenalty(url) >= 35;
+/**
+ * Prefer full-res for the MAIN carousel.
+ * Lower score = better.
+ */
+function fullResScore(url: string) {
+  const s = (safeStr(url) ?? '').toLowerCase();
+  if (!s) return 9999;
+
+  let score = 0;
+
+  // Explicit high-res hints
+  if (s.includes('large') || s.includes('full') || s.includes('original') || s.includes('orig')) score -= 50;
+
+  // Penalize strong thumb markers
+  if (isThumbStrong(s)) score += 200;
+
+  // Mild heuristics (NOT query params)
+  if (s.includes('small') || s.includes('tiny')) score += 30;
+
+  return score;
+}
+
+/**
+ * Prefer thumbnail for the THUMB strip.
+ * Lower score = better.
+ */
+function thumbScore(url: string) {
+  const s = (safeStr(url) ?? '').toLowerCase();
+  if (!s) return 9999;
+
+  let score = 0;
+
+  // Explicit thumb hints
+  if (isThumbStrong(s)) score -= 80;
+
+  // If it's explicitly large/full/original, it's not ideal as a thumb (but OK fallback)
+  if (s.includes('large') || s.includes('full') || s.includes('original') || s.includes('orig')) score += 20;
+
+  return score;
 }
 
 function extractPhotoUrlsFromRawPayload(raw: any): string[] {
@@ -88,16 +121,12 @@ function extractPhotoUrlsFromRawPayload(raw: any): string[] {
     }
   }
 
-  // Primary + thumb fallbacks (keep, but we will GROUP them correctly)
+  // Keep these (we’ll select the right one via scoring)
   urls.push(rp.PrimaryPhotoUrl, rp.primaryPhotoUrl, rp.ThumbnailUrl, rp.thumbnailUrl);
 
   return urls.map(safeStr).filter(Boolean) as string[];
 }
 
-/**
- * Build photo “slots” where each slot has a bestFull and bestThumb.
- * This prevents the carousel from ever swapping full<->thumb within the same slot.
- */
 function buildPhotoSlots(urls: string[]) {
   const cleaned = (urls ?? []).map((u) => safeStr(u)).filter(Boolean) as string[];
 
@@ -113,24 +142,19 @@ function buildPhotoSlots(urls: string[]) {
   const slots: { key: string; bestFull: string; bestThumb: string }[] = [];
 
   for (const [key, variants] of byKey.entries()) {
-    // Sort best quality first (lowest penalty)
-    const sorted = [...variants].sort((a, b) => photoQualityPenalty(a) - photoQualityPenalty(b));
+    const uniq = Array.from(new Set(variants));
 
-    const bestOverall = sorted[0]; // typically full
-    const bestThumbCandidate = sorted.find((u) => isLikelyThumb(u)) ?? bestOverall;
-
-    // Ensure bestFull prefers non-thumb if available
-    const bestFullCandidate = sorted.find((u) => !isLikelyThumb(u)) ?? bestOverall;
+    const bestFull = [...uniq].sort((a, b) => fullResScore(a) - fullResScore(b))[0];
+    const bestThumb = [...uniq].sort((a, b) => thumbScore(a) - thumbScore(b))[0] ?? bestFull;
 
     slots.push({
       key,
-      bestFull: bestFullCandidate,
-      bestThumb: bestThumbCandidate,
+      bestFull,
+      bestThumb: bestThumb ?? bestFull,
     });
   }
 
-  // Keep a stable order: sort by key to avoid reorder flicker across renders
-  // (Your previous code could reorder by penalty on each input change.)
+  // Stable ordering to avoid flicker/reorder across renders
   slots.sort((a, b) => a.key.localeCompare(b.key));
 
   return slots;
@@ -148,7 +172,7 @@ export function ListingPhotoCarousel({
 }: {
   photoRows?: ListingPhotoRowLike[];
   rawPayload?: any;
-  fallbackUrls?: string[]; // e.g. [property.primary_photo_url]
+  fallbackUrls?: string[];
   heightClass?: string;
   showThumbs?: boolean;
   maxThumbs?: number;
@@ -172,7 +196,6 @@ export function ListingPhotoCarousel({
   const mainPhotos = useMemo(() => slots.map((s) => s.bestFull), [slots]);
   const thumbPhotos = useMemo(() => slots.map((s) => s.bestThumb), [slots]);
 
-  // Reset index if the photo set changes
   useEffect(() => {
     setActiveIdx(0);
   }, [slots.length]);
@@ -244,7 +267,7 @@ export function ListingPhotoCarousel({
         {primaryUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            key={primaryUrl} // ✅ prevents weird “same node different src” caching glitches
+            key={primaryUrl}
             src={primaryUrl}
             alt="Property photo"
             className={`w-full ${heightClass} object-cover select-none`}
@@ -335,4 +358,5 @@ export function ListingPhotoCarousel({
     </div>
   );
 }
+
 
