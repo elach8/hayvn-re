@@ -1,4 +1,3 @@
-// app/components/ListingPhotoCarousel.tsx
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -25,15 +24,12 @@ function canonicalPhotoKey(url: string) {
 }
 
 /**
- * STRONG signals that something is a thumbnail.
- * IMPORTANT: Do NOT treat query params like w=/width= as "thumb" by default,
- * because many systems serve full images with those params.
+ * Strong thumb markers only (do not assume w=/width= means thumb)
  */
 function isThumbStrong(url: string) {
   const s = (safeStr(url) ?? '').toLowerCase();
   if (!s) return false;
 
-  // Strong thumb markers
   if (s.includes('thumbnail') || s.includes('/thumbnail') || s.includes('thumb')) return true;
   if (s.includes('/small/') || s.includes('small_') || s.includes('_small')) return true;
   if (s.includes('/tiny/') || s.includes('tiny_') || s.includes('_tiny')) return true;
@@ -41,45 +37,90 @@ function isThumbStrong(url: string) {
   return false;
 }
 
-/**
- * Prefer full-res for the MAIN carousel.
- * Lower score = better.
- */
-function fullResScore(url: string) {
+function hasHiHint(url: string) {
   const s = (safeStr(url) ?? '').toLowerCase();
-  if (!s) return 9999;
-
-  let score = 0;
-
-  // Explicit high-res hints
-  if (s.includes('large') || s.includes('full') || s.includes('original') || s.includes('orig')) score -= 50;
-
-  // Penalize strong thumb markers
-  if (isThumbStrong(s)) score += 200;
-
-  // Mild heuristics (NOT query params)
-  if (s.includes('small') || s.includes('tiny')) score += 30;
-
-  return score;
+  return s.includes('large') || s.includes('full') || s.includes('original') || s.includes('orig');
 }
 
 /**
- * Prefer thumbnail for the THUMB strip.
- * Lower score = better.
+ * Parse size hints from query params.
+ * Returns an "area-ish" score (bigger = higher-res), or 0 if unknown.
  */
-function thumbScore(url: string) {
-  const s = (safeStr(url) ?? '').toLowerCase();
-  if (!s) return 9999;
+function sizeHint(url: string): number {
+  const s = safeStr(url) ?? '';
+  const q = s.split('?')[1] ?? '';
+  if (!q) return 0;
 
-  let score = 0;
+  const params = new URLSearchParams(q);
 
-  // Explicit thumb hints
-  if (isThumbStrong(s)) score -= 80;
+  const pickInt = (keys: string[]) => {
+    for (const k of keys) {
+      const v = params.get(k);
+      if (!v) continue;
+      const n = parseInt(v, 10);
+      if (!Number.isNaN(n) && n > 0) return n;
+    }
+    return 0;
+  };
 
-  // If it's explicitly large/full/original, it's not ideal as a thumb (but OK fallback)
-  if (s.includes('large') || s.includes('full') || s.includes('original') || s.includes('orig')) score += 20;
+  const w = pickInt(['width', 'w', 'maxwidth', 'mw']);
+  const h = pickInt(['height', 'h', 'maxheight', 'mh']);
 
-  return score;
+  if (w && h) return w * h;
+  if (w) return w; // still useful
+  if (h) return h;
+
+  return 0;
+}
+
+/**
+ * Choose best full-res variant:
+ * 1) NOT strong-thumb
+ * 2) biggest sizeHint (w/h)
+ * 3) hasHiHint
+ * 4) longer URL (last tie-breaker)
+ */
+function pickBestFull(variants: string[]) {
+  const uniq = Array.from(new Set(variants));
+  uniq.sort((a, b) => {
+    const aThumb = isThumbStrong(a) ? 1 : 0;
+    const bThumb = isThumbStrong(b) ? 1 : 0;
+    if (aThumb !== bThumb) return aThumb - bThumb; // prefer non-thumb (0)
+
+    const aSize = sizeHint(a);
+    const bSize = sizeHint(b);
+    if (aSize !== bSize) return bSize - aSize; // prefer bigger
+
+    const aHi = hasHiHint(a) ? 1 : 0;
+    const bHi = hasHiHint(b) ? 1 : 0;
+    if (aHi !== bHi) return bHi - aHi; // prefer hi-hint
+
+    return (b.length ?? 0) - (a.length ?? 0); // prefer longer
+  });
+  return uniq[0];
+}
+
+/**
+ * Choose best thumb variant:
+ * 1) strong-thumb
+ * 2) smallest sizeHint (w/h) (prefer smaller for strip)
+ * 3) shorter URL
+ */
+function pickBestThumb(variants: string[], fallbackFull: string) {
+  const uniq = Array.from(new Set(variants));
+  uniq.sort((a, b) => {
+    const aThumb = isThumbStrong(a) ? 1 : 0;
+    const bThumb = isThumbStrong(b) ? 1 : 0;
+    if (aThumb !== bThumb) return bThumb - aThumb; // prefer thumb (1)
+
+    const aSize = sizeHint(a);
+    const bSize = sizeHint(b);
+    if (aSize !== bSize) return aSize - bSize; // prefer smaller
+
+    return (a.length ?? 0) - (b.length ?? 0); // prefer shorter
+  });
+
+  return uniq[0] ?? fallbackFull;
 }
 
 function extractPhotoUrlsFromRawPayload(raw: any): string[] {
@@ -103,7 +144,10 @@ function extractPhotoUrlsFromRawPayload(raw: any): string[] {
         continue;
       }
       if (item && typeof item === 'object') {
+        // Put Large/full BEFORE generic Url so ties prefer large.
         urls.push(
+          item.LargeUrl,
+          item.largeUrl,
           item.Url,
           item.url,
           item.MediaURL,
@@ -112,8 +156,6 @@ function extractPhotoUrlsFromRawPayload(raw: any): string[] {
           item.mediaURL,
           item.Uri,
           item.uri,
-          item.LargeUrl,
-          item.largeUrl,
           item.ThumbnailUrl,
           item.thumbnailUrl
         );
@@ -121,7 +163,7 @@ function extractPhotoUrlsFromRawPayload(raw: any): string[] {
     }
   }
 
-  // Keep these (we’ll select the right one via scoring)
+  // Keep these (selection logic will pick correct variant)
   urls.push(rp.PrimaryPhotoUrl, rp.primaryPhotoUrl, rp.ThumbnailUrl, rp.thumbnailUrl);
 
   return urls.map(safeStr).filter(Boolean) as string[];
@@ -142,19 +184,19 @@ function buildPhotoSlots(urls: string[]) {
   const slots: { key: string; bestFull: string; bestThumb: string }[] = [];
 
   for (const [key, variants] of byKey.entries()) {
-    const uniq = Array.from(new Set(variants));
+    const bestFull = pickBestFull(variants);
+    const bestThumb = pickBestThumb(variants, bestFull);
 
-    const bestFull = [...uniq].sort((a, b) => fullResScore(a) - fullResScore(b))[0];
-    const bestThumb = [...uniq].sort((a, b) => thumbScore(a) - thumbScore(b))[0] ?? bestFull;
-
-    slots.push({
-      key,
-      bestFull,
-      bestThumb: bestThumb ?? bestFull,
-    });
+    if (bestFull) {
+      slots.push({
+        key,
+        bestFull,
+        bestThumb,
+      });
+    }
   }
 
-  // Stable ordering to avoid flicker/reorder across renders
+  // Stable ordering
   slots.sort((a, b) => a.key.localeCompare(b.key));
 
   return slots;
