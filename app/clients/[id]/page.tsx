@@ -835,7 +835,7 @@ export default function ClientDetailPage() {
                   </div>
 
                   <div>
-                    <div className="text-slate-400 text-xs uppercase tracking-wide">{isBuyer ? 'Budget' : 'Target price'}</div>
+                    <div className="text-slate-400 text-xs uppercase tracking-wide">{isBuyer ? 'List Range' : 'Target price'}</div>
                     <div className="font-medium text-slate-50">
                       {isBuyer ? formatBudget(client.budget_min, client.budget_max) : formatPrice(client.seller_target)}
                     </div>
@@ -1092,7 +1092,7 @@ export default function ClientDetailPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-                  <div className="text-xs text-slate-400 uppercase tracking-wide">Budget</div>
+                  <div className="text-xs text-slate-400 uppercase tracking-wide">List Range</div>
                   <div className="text-slate-100 font-medium">{formatBudget(client.budget_min, client.budget_max)}</div>
                 </div>
 

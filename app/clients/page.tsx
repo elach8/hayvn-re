@@ -358,7 +358,7 @@ export default function ClientsPage() {
                   <th className="px-3 py-2 text-left border-b border-white/10">Client</th>
                   <th className="px-3 py-2 text-left border-b border-white/10">Type</th>
                   <th className="px-3 py-2 text-left border-b border-white/10">Stage</th>
-                  <th className="px-3 py-2 text-left border-b border-white/10">Budget</th>
+                  <th className="px-3 py-2 text-left border-b border-white/10">List Range</th>
                   <th className="px-3 py-2 text-left border-b border-white/10">Target Price</th>
                   <th className="px-3 py-2 text-left border-b border-white/10 hidden md:table-cell">
                     Preferred locations

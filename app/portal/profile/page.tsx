@@ -206,7 +206,7 @@ export default function PortalProfilePage() {
               Your profile & preferences
             </h1>
             <p className="text-sm text-slate-300 max-w-xl">
-              Update your search areas and budget so your agent has the most
+              Update your search areas and listing range so your agent has the most
               accurate picture of what you&apos;re looking for.
             </p>
           </div>
@@ -297,7 +297,7 @@ export default function PortalProfilePage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
                         <label className="block text-xs font-medium mb-1 text-slate-200">
-                          Budget minimum
+                          List minimum
                         </label>
                         <input
                           type="text"
@@ -316,7 +316,7 @@ export default function PortalProfilePage() {
                       </div>
                       <div>
                         <label className="block text-xs font-medium mb-1 text-slate-200">
-                          Budget maximum
+                          List maximum
                         </label>
                         <input
                           type="text"

@@ -396,7 +396,7 @@ export default function EditClientPage() {
     const min = toNumberOrNull(budgetMin);
     const max = toNumberOrNull(budgetMax);
     if (isBuyer && min != null && max != null && min > max) {
-      setSaveError('Budget Min cannot be greater than Budget Max.');
+      setSaveError('List Min cannot be greater than List Max.');
       return;
     }
 
@@ -634,7 +634,7 @@ export default function EditClientPage() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium mb-1 text-slate-100">Budget Min</label>
+                      <label className="block text-sm font-medium mb-1 text-slate-100">List Min</label>
                       <input
                         value={budgetMin}
                         onChange={(e) => setBudgetMin(e.target.value)}
@@ -643,7 +643,7 @@ export default function EditClientPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium mb-1 text-slate-100">Budget Max</label>
+                      <label className="block text-sm font-medium mb-1 text-slate-100">List Max</label>
                       <input
                         value={budgetMax}
                         onChange={(e) => setBudgetMax(e.target.value)}

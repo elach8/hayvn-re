@@ -634,7 +634,7 @@ try {
                 <div className="text-sm font-medium text-slate-50">{client.stage || 'Active'}</div>
               </div>
               <div>
-                <div className="text-[11px] text-slate-400 uppercase tracking-wide">Budget</div>
+                <div className="text-[11px] text-slate-400 uppercase tracking-wide">List Range</div>
                 <div className="text-sm font-medium text-slate-50">
                   {formatBudget(client.budget_min, client.budget_max)}
                 </div>
