@@ -1,4 +1,3 @@
-// app/components/ListingPhotoCarousel.tsx
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -12,60 +11,25 @@ function safeStr(v: any): string | null {
   return null;
 }
 
-/**
- * De-dupe “same photo different size” variants and prefer the higher-quality URL.
- * - canonical key strips query string + hash
- * - we sort so "thumb/thumbnail/small/resize/w=..." go last
- */
-function canonicalPhotoKey(url: string) {
-  const s = safeStr(url) ?? '';
-  if (!s) return '';
-  const noHash = s.split('#')[0];
-  const noQuery = noHash.split('?')[0];
-  return noQuery.trim();
+function isThumbnail(url: string) {
+  const s = url.toLowerCase();
+  return (
+    s.includes('thumbnail') ||
+    s.includes('/thumbnail') ||
+    s.includes('thumb') ||
+    s.includes('small') ||
+    s.includes('tiny') ||
+    s.includes('width=') ||
+    s.includes('w=') ||
+    s.includes('height=') ||
+    s.includes('h=') ||
+    s.includes('resize') ||
+    s.includes('fit=')
+  );
 }
 
-function photoQualityRank(url: string) {
-  const s = (safeStr(url) ?? '').toLowerCase();
-  if (!s) return 999;
-
-  // higher score = worse quality
-  let penalty = 0;
-
-  if (s.includes('thumbnail') || s.includes('/thumbnail') || s.includes('thumb')) penalty += 50;
-  if (s.includes('small') || s.includes('tiny')) penalty += 20;
-
-  // common resize params in query strings
-  if (s.includes('width=') || s.includes('w=') || s.includes('height=') || s.includes('h=')) penalty += 15;
-  if (s.includes('resize') || s.includes('resized') || s.includes('fit=')) penalty += 15;
-
-  // sometimes CDNs label large explicitly
-  if (s.includes('large') || s.includes('full')) penalty -= 10;
-
-  return penalty;
-}
-
-function uniqPhotoUrlsPreferLarge(urls: string[]) {
-  const cleaned = urls.map((u) => safeStr(u)).filter(Boolean) as string[];
-
-  // Prefer higher quality first (lower penalty first)
-  cleaned.sort((a, b) => photoQualityRank(a) - photoQualityRank(b));
-
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const u of cleaned) {
-    const key = canonicalPhotoKey(u);
-    if (!key) continue;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(u);
-  }
-  return out;
-}
-
-function extractPhotoUrlsFromRawPayload(raw: any): string[] {
+function extractPhotoUrlsFromRawPayload(raw: any) {
   const rp = raw ?? {};
-
   const buckets: any[] = [];
 
   if (Array.isArray(rp.PhotoUrls)) buckets.push(rp.PhotoUrls);
@@ -81,10 +45,10 @@ function extractPhotoUrlsFromRawPayload(raw: any): string[] {
     for (const item of b) {
       if (typeof item === 'string') {
         urls.push(item);
-        continue;
-      }
-      if (item && typeof item === 'object') {
+      } else if (item && typeof item === 'object') {
         urls.push(
+          item.LargeUrl,
+          item.largeUrl,
           item.Url,
           item.url,
           item.MediaURL,
@@ -92,18 +56,15 @@ function extractPhotoUrlsFromRawPayload(raw: any): string[] {
           item.mediaUrl,
           item.mediaURL,
           item.Uri,
-          item.uri,
-          item.LargeUrl,
-          item.largeUrl
+          item.uri
         );
       }
     }
   }
 
-  // Primary + thumb fallbacks
-  urls.push(rp.PrimaryPhotoUrl, rp.primaryPhotoUrl, rp.ThumbnailUrl, rp.thumbnailUrl);
+  urls.push(rp.PrimaryPhotoUrl, rp.primaryPhotoUrl);
 
-  return uniqPhotoUrlsPreferLarge(urls.filter(Boolean) as string[]);
+  return urls.map(safeStr).filter(Boolean) as string[];
 }
 
 export type ListingPhotoRowLike = { url: string | null | undefined };
@@ -118,43 +79,45 @@ export function ListingPhotoCarousel({
 }: {
   photoRows?: ListingPhotoRowLike[];
   rawPayload?: any;
-  fallbackUrls?: string[]; // e.g. [property.primary_photo_url]
+  fallbackUrls?: string[];
   heightClass?: string;
   showThumbs?: boolean;
   maxThumbs?: number;
 }) {
   const [activeIdx, setActiveIdx] = useState(0);
 
-  const rawFromPayload = useMemo(() => extractPhotoUrlsFromRawPayload(rawPayload), [rawPayload]);
-
-  const allPhotoUrls = useMemo(() => {
+  const allUrls = useMemo(() => {
     const fromTable = (photoRows ?? []).map((p) => safeStr(p.url)).filter(Boolean) as string[];
-    if (fromTable.length > 0) return uniqPhotoUrlsPreferLarge(fromTable);
+    if (fromTable.length) return fromTable;
 
-    if (rawFromPayload.length > 0) return uniqPhotoUrlsPreferLarge(rawFromPayload);
+    const fromPayload = extractPhotoUrlsFromRawPayload(rawPayload);
+    if (fromPayload.length) return fromPayload;
 
-    const fb = (fallbackUrls ?? []).map((u) => safeStr(u)).filter(Boolean) as string[];
-    return uniqPhotoUrlsPreferLarge(fb);
-  }, [photoRows, rawFromPayload, fallbackUrls]);
+    return (fallbackUrls ?? []).map(safeStr).filter(Boolean) as string[];
+  }, [photoRows, rawPayload, fallbackUrls]);
 
-  // Reset index if the photo set changes
+  // 🔒 HARD SPLIT
+  const fullResPhotos = useMemo(
+    () => allUrls.filter((u) => !isThumbnail(u)),
+    [allUrls]
+  );
+
+  const thumbPhotos = useMemo(
+    () => allUrls.filter((u) => isThumbnail(u)),
+    [allUrls]
+  );
+
+  const photos = fullResPhotos.length ? fullResPhotos : allUrls;
+
   useEffect(() => {
     setActiveIdx(0);
-  }, [allPhotoUrls.length]);
+  }, [photos.length]);
 
-  const hasPhotos = allPhotoUrls.length > 0;
-  const canPrev = hasPhotos && activeIdx > 0;
-  const canNext = hasPhotos && activeIdx < allPhotoUrls.length - 1;
+  const canPrev = activeIdx > 0;
+  const canNext = activeIdx < photos.length - 1;
 
-  const goPrev = () => {
-    if (!canPrev) return;
-    setActiveIdx((i) => Math.max(0, i - 1));
-  };
-
-  const goNext = () => {
-    if (!canNext) return;
-    setActiveIdx((i) => Math.min(allPhotoUrls.length - 1, i + 1));
-  };
+  const goPrev = () => canPrev && setActiveIdx((i) => i - 1);
+  const goNext = () => canNext && setActiveIdx((i) => i + 1);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -163,8 +126,7 @@ export function ListingPhotoCarousel({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canPrev, canNext, allPhotoUrls.length]);
+  }, [canPrev, canNext]);
 
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
@@ -177,27 +139,23 @@ export function ListingPhotoCarousel({
   };
 
   const onTouchEnd = (e: React.TouchEvent) => {
-    const startX = touchStartX.current;
-    const startY = touchStartY.current;
-    touchStartX.current = null;
-    touchStartY.current = null;
-
-    if (startX == null || startY == null) return;
-
+    if (touchStartX.current == null || touchStartY.current == null) return;
     const t = e.changedTouches[0];
     if (!t) return;
 
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
+    const dx = t.clientX - touchStartX.current;
+    const dy = t.clientY - touchStartY.current;
+
+    touchStartX.current = null;
+    touchStartY.current = null;
 
     if (Math.abs(dx) < 40) return;
     if (Math.abs(dy) > Math.abs(dx) * 0.75) return;
 
-    if (dx > 0) goPrev();
-    else goNext();
+    dx > 0 ? goPrev() : goNext();
   };
 
-  const primaryUrl = hasPhotos ? allPhotoUrls[activeIdx] ?? null : null;
+  const primaryUrl = photos[activeIdx] ?? null;
 
   return (
     <div className="space-y-2">
@@ -207,8 +165,8 @@ export function ListingPhotoCarousel({
         onTouchEnd={onTouchEnd}
       >
         {primaryUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
           <img
+            key={primaryUrl} // ✅ forces clean swap
             src={primaryUrl}
             alt="Property photo"
             className={`w-full ${heightClass} object-cover select-none`}
@@ -220,38 +178,21 @@ export function ListingPhotoCarousel({
           </div>
         )}
 
-        {allPhotoUrls.length > 1 && (
+        {photos.length > 1 && (
           <>
             <button
               type="button"
               onClick={goPrev}
               disabled={!canPrev}
-              className={[
-                'absolute left-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs',
-                'backdrop-blur bg-black/40',
-                canPrev
-                  ? 'border-white/20 text-slate-100 hover:bg-black/55'
-                  : 'border-white/10 text-slate-500 opacity-60 cursor-not-allowed',
-              ].join(' ')}
-              aria-label="Previous photo"
-              title="Previous (←)"
+              className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs backdrop-blur bg-black/40 border-white/20 text-slate-100 disabled:opacity-50"
             >
               ←
             </button>
-
             <button
               type="button"
               onClick={goNext}
               disabled={!canNext}
-              className={[
-                'absolute right-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs',
-                'backdrop-blur bg-black/40',
-                canNext
-                  ? 'border-white/20 text-slate-100 hover:bg-black/55'
-                  : 'border-white/10 text-slate-500 opacity-60 cursor-not-allowed',
-              ].join(' ')}
-              aria-label="Next photo"
-              title="Next (→)"
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs backdrop-blur bg-black/40 border-white/20 text-slate-100 disabled:opacity-50"
             >
               →
             </button>
@@ -259,33 +200,26 @@ export function ListingPhotoCarousel({
         )}
       </div>
 
-      {showThumbs && allPhotoUrls.length > 1 && (
+      {showThumbs && thumbPhotos.length > 0 && (
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {allPhotoUrls.slice(0, maxThumbs).map((url, idx) => {
-            const active = idx === activeIdx;
-            return (
-              <button
-                key={`${url}-${idx}`}
-                type="button"
-                onClick={() => setActiveIdx(idx)}
-                className={[
-                  'shrink-0 rounded-xl overflow-hidden border transition',
-                  active ? 'border-[#EBD27A]/60 bg-[#EBD27A]/10' : 'border-white/10 bg-black/40 hover:border-white/25',
-                ].join(' ')}
-                aria-label={`View photo ${idx + 1}`}
-                title={`Photo ${idx + 1}`}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt={`Photo ${idx + 1}`} className="h-16 w-24 object-cover" draggable={false} />
-              </button>
-            );
-          })}
+          {thumbPhotos.slice(0, maxThumbs).map((url, idx) => (
+            <button
+              key={`${url}-${idx}`}
+              type="button"
+              onClick={() => setActiveIdx(idx)}
+              className="shrink-0 rounded-xl overflow-hidden border border-white/10 bg-black/40 hover:border-white/25"
+            >
+              <img src={url} className="h-16 w-24 object-cover" draggable={false} />
+            </button>
+          ))}
         </div>
       )}
 
-      {allPhotoUrls.length > 1 ? (
-        <div className="text-[11px] text-slate-500">Tip: swipe or use ← → keys • {activeIdx + 1}/{allPhotoUrls.length}</div>
-      ) : null}
+      {photos.length > 1 && (
+        <div className="text-[11px] text-slate-500">
+          Tip: swipe or use ← → keys • {activeIdx + 1}/{photos.length}
+        </div>
+      )}
     </div>
   );
 }
