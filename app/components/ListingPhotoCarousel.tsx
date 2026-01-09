@@ -1,3 +1,4 @@
+// app/components/ListingPhotoCarousel.tsx
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -11,25 +12,74 @@ function safeStr(v: any): string | null {
   return null;
 }
 
-function isThumbnail(url: string) {
-  const s = url.toLowerCase();
-  return (
-    s.includes('thumbnail') ||
-    s.includes('/thumbnail') ||
-    s.includes('thumb') ||
-    s.includes('small') ||
-    s.includes('tiny') ||
-    s.includes('width=') ||
-    s.includes('w=') ||
-    s.includes('height=') ||
-    s.includes('h=') ||
-    s.includes('resize') ||
-    s.includes('fit=')
-  );
+/**
+ * Canonical key for non-MLSL URLs: strip query + hash.
+ */
+function canonicalPhotoKey(url: string) {
+  const s = safeStr(url) ?? '';
+  if (!s) return '';
+  const noHash = s.split('#')[0];
+  const noQuery = noHash.split('?')[0];
+  return noQuery.trim();
 }
 
-function extractPhotoUrlsFromRawPayload(raw: any) {
+/**
+ * MLSL media variant parser.
+ * Pattern:
+ *   https://media.mlslmedia.com/.../<hash>/<size>/<idx>
+ * where:
+ *   size = 1 (low), 2 (high)
+ *   idx  = photo index (1..N)
+ *
+ * We group by everything before /<size>/<idx> AND the idx,
+ * then choose bestFull = max(size), bestThumb = min(size).
+ */
+function parseMlslMediaVariant(url: string): { baseKey: string; size: number; idx: number } | null {
+  try {
+    const u = new URL(url);
+    const host = (u.hostname || '').toLowerCase();
+    if (!host.endsWith('mlslmedia.com')) return null;
+
+    const parts = u.pathname.split('/').filter(Boolean);
+    if (parts.length < 3) return null;
+
+    const idx = parseInt(parts[parts.length - 1], 10);
+    const size = parseInt(parts[parts.length - 2], 10);
+    if (!Number.isFinite(idx) || !Number.isFinite(size)) return null;
+
+    const base = parts.slice(0, -2).join('/');
+    const baseKey = `${host}/${base}::${idx}`;
+
+    return { baseKey, size, idx };
+  } catch {
+    return null;
+  }
+}
+
+function photoQualityRank(url: string) {
+  const s = (safeStr(url) ?? '').toLowerCase();
+  if (!s) return 999;
+
+  // higher score = worse quality
+  let penalty = 0;
+
+  if (s.includes('thumbnail') || s.includes('/thumbnail') || s.includes('thumb')) penalty += 50;
+  if (s.includes('small') || s.includes('tiny')) penalty += 20;
+
+  // NOTE: we DO NOT rely on w=/width= as a thumb signal for MLSL.
+  // Keep this only as a weak, general heuristic for other CDNs.
+  if (s.includes('width=') || s.includes('w=') || s.includes('height=') || s.includes('h=')) penalty += 10;
+
+  if (s.includes('resize') || s.includes('resized') || s.includes('fit=')) penalty += 10;
+
+  if (s.includes('large') || s.includes('full')) penalty -= 10;
+
+  return penalty;
+}
+
+function extractPhotoUrlsFromRawPayload(raw: any): string[] {
   const rp = raw ?? {};
+
   const buckets: any[] = [];
 
   if (Array.isArray(rp.PhotoUrls)) buckets.push(rp.PhotoUrls);
@@ -45,10 +95,10 @@ function extractPhotoUrlsFromRawPayload(raw: any) {
     for (const item of b) {
       if (typeof item === 'string') {
         urls.push(item);
-      } else if (item && typeof item === 'object') {
+        continue;
+      }
+      if (item && typeof item === 'object') {
         urls.push(
-          item.LargeUrl,
-          item.largeUrl,
           item.Url,
           item.url,
           item.MediaURL,
@@ -56,15 +106,95 @@ function extractPhotoUrlsFromRawPayload(raw: any) {
           item.mediaUrl,
           item.mediaURL,
           item.Uri,
-          item.uri
+          item.uri,
+          item.LargeUrl,
+          item.largeUrl,
+          item.ThumbnailUrl,
+          item.thumbnailUrl
         );
       }
     }
   }
 
-  urls.push(rp.PrimaryPhotoUrl, rp.primaryPhotoUrl);
+  // Primary + thumb fallbacks
+  urls.push(rp.PrimaryPhotoUrl, rp.primaryPhotoUrl, rp.ThumbnailUrl, rp.thumbnailUrl);
 
   return urls.map(safeStr).filter(Boolean) as string[];
+}
+
+type PhotoSlot = { key: string; full: string; thumb: string };
+
+function buildPhotoSlots(urls: string[]): PhotoSlot[] {
+  const cleaned = (urls ?? []).map((u) => safeStr(u)).filter(Boolean) as string[];
+
+  // 1) Group MLSL variants deterministically by (baseKey = listing+hash + idx)
+  const mlslGroups = new Map<string, { url: string; size: number }[]>();
+  const nonMlsl: string[] = [];
+
+  for (const u of cleaned) {
+    const parsed = parseMlslMediaVariant(u);
+    if (parsed) {
+      const arr = mlslGroups.get(parsed.baseKey) ?? [];
+      arr.push({ url: u, size: parsed.size });
+      mlslGroups.set(parsed.baseKey, arr);
+    } else {
+      nonMlsl.push(u);
+    }
+  }
+
+  const slots: PhotoSlot[] = [];
+
+  // MLSL: full = max size, thumb = min size
+  for (const [key, variants] of mlslGroups.entries()) {
+    // de-dupe by URL
+    const uniqMap = new Map<string, { url: string; size: number }>();
+    for (const v of variants) uniqMap.set(v.url, v);
+    const uniq = Array.from(uniqMap.values());
+
+    uniq.sort((a, b) => a.size - b.size); // ascending
+
+    const thumb = uniq[0]?.url;
+    const full = uniq[uniq.length - 1]?.url;
+
+    if (full) {
+      slots.push({
+        key: `mlsl::${key}`,
+        full,
+        thumb: thumb ?? full,
+      });
+    }
+  }
+
+  // 2) Non-MLSL: keep a reasonable de-dupe + prefer higher quality
+  if (nonMlsl.length) {
+    const byKey = new Map<string, string[]>();
+    for (const u of nonMlsl) {
+      const k = canonicalPhotoKey(u);
+      if (!k) continue;
+      const arr = byKey.get(k) ?? [];
+      arr.push(u);
+      byKey.set(k, arr);
+    }
+
+    for (const [k, variants] of byKey.entries()) {
+      const uniq = Array.from(new Set(variants));
+      // Prefer higher quality first (lower penalty)
+      uniq.sort((a, b) => photoQualityRank(a) - photoQualityRank(b));
+      const full = uniq[0];
+      const thumb = uniq[uniq.length - 1] ?? full;
+      if (full) {
+        slots.push({
+          key: `other::${k}`,
+          full,
+          thumb,
+        });
+      }
+    }
+  }
+
+  // Stable ordering so UI doesn’t flicker/reorder
+  slots.sort((a, b) => a.key.localeCompare(b.key));
+  return slots;
 }
 
 export type ListingPhotoRowLike = { url: string | null | undefined };
@@ -79,45 +209,48 @@ export function ListingPhotoCarousel({
 }: {
   photoRows?: ListingPhotoRowLike[];
   rawPayload?: any;
-  fallbackUrls?: string[];
+  fallbackUrls?: string[]; // e.g. [property.primary_photo_url]
   heightClass?: string;
   showThumbs?: boolean;
   maxThumbs?: number;
 }) {
   const [activeIdx, setActiveIdx] = useState(0);
 
-  const allUrls = useMemo(() => {
+  const rawFromPayload = useMemo(() => extractPhotoUrlsFromRawPayload(rawPayload), [rawPayload]);
+
+  const allCandidateUrls = useMemo(() => {
     const fromTable = (photoRows ?? []).map((p) => safeStr(p.url)).filter(Boolean) as string[];
-    if (fromTable.length) return fromTable;
+    if (fromTable.length > 0) return fromTable;
 
-    const fromPayload = extractPhotoUrlsFromRawPayload(rawPayload);
-    if (fromPayload.length) return fromPayload;
+    if (rawFromPayload.length > 0) return rawFromPayload;
 
-    return (fallbackUrls ?? []).map(safeStr).filter(Boolean) as string[];
-  }, [photoRows, rawPayload, fallbackUrls]);
+    const fb = (fallbackUrls ?? []).map((u) => safeStr(u)).filter(Boolean) as string[];
+    return fb;
+  }, [photoRows, rawFromPayload, fallbackUrls]);
 
-  // 🔒 HARD SPLIT
-  const fullResPhotos = useMemo(
-    () => allUrls.filter((u) => !isThumbnail(u)),
-    [allUrls]
-  );
+  const slots = useMemo(() => buildPhotoSlots(allCandidateUrls), [allCandidateUrls]);
 
-  const thumbPhotos = useMemo(
-    () => allUrls.filter((u) => isThumbnail(u)),
-    [allUrls]
-  );
+  const mainPhotos = useMemo(() => slots.map((s) => s.full), [slots]);
+  const thumbPhotos = useMemo(() => slots.map((s) => s.thumb), [slots]);
 
-  const photos = fullResPhotos.length ? fullResPhotos : allUrls;
-
+  // Reset index if the photo set changes
   useEffect(() => {
     setActiveIdx(0);
-  }, [photos.length]);
+  }, [slots.length]);
 
-  const canPrev = activeIdx > 0;
-  const canNext = activeIdx < photos.length - 1;
+  const hasPhotos = mainPhotos.length > 0;
+  const canPrev = hasPhotos && activeIdx > 0;
+  const canNext = hasPhotos && activeIdx < mainPhotos.length - 1;
 
-  const goPrev = () => canPrev && setActiveIdx((i) => i - 1);
-  const goNext = () => canNext && setActiveIdx((i) => i + 1);
+  const goPrev = () => {
+    if (!canPrev) return;
+    setActiveIdx((i) => Math.max(0, i - 1));
+  };
+
+  const goNext = () => {
+    if (!canNext) return;
+    setActiveIdx((i) => Math.min(mainPhotos.length - 1, i + 1));
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -126,7 +259,8 @@ export function ListingPhotoCarousel({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [canPrev, canNext]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPrev, canNext, mainPhotos.length]);
 
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
@@ -139,23 +273,27 @@ export function ListingPhotoCarousel({
   };
 
   const onTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX.current == null || touchStartY.current == null) return;
+    const startX = touchStartX.current;
+    const startY = touchStartY.current;
+    touchStartX.current = null;
+    touchStartY.current = null;
+
+    if (startX == null || startY == null) return;
+
     const t = e.changedTouches[0];
     if (!t) return;
 
-    const dx = t.clientX - touchStartX.current;
-    const dy = t.clientY - touchStartY.current;
-
-    touchStartX.current = null;
-    touchStartY.current = null;
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
 
     if (Math.abs(dx) < 40) return;
     if (Math.abs(dy) > Math.abs(dx) * 0.75) return;
 
-    dx > 0 ? goPrev() : goNext();
+    if (dx > 0) goPrev();
+    else goNext();
   };
 
-  const primaryUrl = photos[activeIdx] ?? null;
+  const primaryUrl = hasPhotos ? mainPhotos[activeIdx] ?? null : null;
 
   return (
     <div className="space-y-2">
@@ -165,8 +303,9 @@ export function ListingPhotoCarousel({
         onTouchEnd={onTouchEnd}
       >
         {primaryUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
           <img
-            key={primaryUrl} // ✅ forces clean swap
+            key={primaryUrl}
             src={primaryUrl}
             alt="Property photo"
             className={`w-full ${heightClass} object-cover select-none`}
@@ -178,21 +317,46 @@ export function ListingPhotoCarousel({
           </div>
         )}
 
-        {photos.length > 1 && (
+        {mainPhotos.length > 1 && (
           <>
             <button
               type="button"
-              onClick={goPrev}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                goPrev();
+              }}
               disabled={!canPrev}
-              className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs backdrop-blur bg-black/40 border-white/20 text-slate-100 disabled:opacity-50"
+              className={[
+                'absolute left-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs',
+                'backdrop-blur bg-black/40',
+                canPrev
+                  ? 'border-white/20 text-slate-100 hover:bg-black/55'
+                  : 'border-white/10 text-slate-500 opacity-60 cursor-not-allowed',
+              ].join(' ')}
+              aria-label="Previous photo"
+              title="Previous (←)"
             >
               ←
             </button>
+
             <button
               type="button"
-              onClick={goNext}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                goNext();
+              }}
               disabled={!canNext}
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs backdrop-blur bg-black/40 border-white/20 text-slate-100 disabled:opacity-50"
+              className={[
+                'absolute right-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs',
+                'backdrop-blur bg-black/40',
+                canNext
+                  ? 'border-white/20 text-slate-100 hover:bg-black/55'
+                  : 'border-white/10 text-slate-500 opacity-60 cursor-not-allowed',
+              ].join(' ')}
+              aria-label="Next photo"
+              title="Next (→)"
             >
               →
             </button>
@@ -200,26 +364,35 @@ export function ListingPhotoCarousel({
         )}
       </div>
 
-      {showThumbs && thumbPhotos.length > 0 && (
+      {showThumbs && thumbPhotos.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {thumbPhotos.slice(0, maxThumbs).map((url, idx) => (
-            <button
-              key={`${url}-${idx}`}
-              type="button"
-              onClick={() => setActiveIdx(idx)}
-              className="shrink-0 rounded-xl overflow-hidden border border-white/10 bg-black/40 hover:border-white/25"
-            >
-              <img src={url} className="h-16 w-24 object-cover" draggable={false} />
-            </button>
-          ))}
+          {thumbPhotos.slice(0, maxThumbs).map((url, idx) => {
+            const active = idx === activeIdx;
+            return (
+              <button
+                key={`${url}-${idx}`}
+                type="button"
+                onClick={() => setActiveIdx(idx)}
+                className={[
+                  'shrink-0 rounded-xl overflow-hidden border transition',
+                  active ? 'border-[#EBD27A]/60 bg-[#EBD27A]/10' : 'border-white/10 bg-black/40 hover:border-white/25',
+                ].join(' ')}
+                aria-label={`View photo ${idx + 1}`}
+                title={`Photo ${idx + 1}`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt={`Photo ${idx + 1}`} className="h-16 w-24 object-cover" draggable={false} />
+              </button>
+            );
+          })}
         </div>
       )}
 
-      {photos.length > 1 && (
+      {mainPhotos.length > 1 ? (
         <div className="text-[11px] text-slate-500">
-          Tip: swipe or use ← → keys • {activeIdx + 1}/{photos.length}
+          Tip: swipe or use ← → keys • {activeIdx + 1}/{mainPhotos.length}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
