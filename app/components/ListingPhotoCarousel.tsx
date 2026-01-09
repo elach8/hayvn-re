@@ -11,121 +11,25 @@ function safeStr(v: any): string | null {
   return null;
 }
 
-/**
- * Group “same photo different size” variants.
- * - strip query+hash for grouping
- */
-function canonicalPhotoKey(url: string) {
-  const s = safeStr(url) ?? '';
-  if (!s) return '';
-  const noHash = s.split('#')[0];
-  const noQuery = noHash.split('?')[0];
-  return noQuery.trim();
+function isThumbnail(url: string) {
+  const s = url.toLowerCase();
+  return (
+    s.includes('thumbnail') ||
+    s.includes('/thumbnail') ||
+    s.includes('thumb') ||
+    s.includes('small') ||
+    s.includes('tiny') ||
+    s.includes('width=') ||
+    s.includes('w=') ||
+    s.includes('height=') ||
+    s.includes('h=') ||
+    s.includes('resize') ||
+    s.includes('fit=')
+  );
 }
 
-/**
- * Strong thumb markers only (do not assume w=/width= means thumb)
- */
-function isThumbStrong(url: string) {
-  const s = (safeStr(url) ?? '').toLowerCase();
-  if (!s) return false;
-
-  if (s.includes('thumbnail') || s.includes('/thumbnail') || s.includes('thumb')) return true;
-  if (s.includes('/small/') || s.includes('small_') || s.includes('_small')) return true;
-  if (s.includes('/tiny/') || s.includes('tiny_') || s.includes('_tiny')) return true;
-
-  return false;
-}
-
-function hasHiHint(url: string) {
-  const s = (safeStr(url) ?? '').toLowerCase();
-  return s.includes('large') || s.includes('full') || s.includes('original') || s.includes('orig');
-}
-
-/**
- * Parse size hints from query params.
- * Returns an "area-ish" score (bigger = higher-res), or 0 if unknown.
- */
-function sizeHint(url: string): number {
-  const s = safeStr(url) ?? '';
-  const q = s.split('?')[1] ?? '';
-  if (!q) return 0;
-
-  const params = new URLSearchParams(q);
-
-  const pickInt = (keys: string[]) => {
-    for (const k of keys) {
-      const v = params.get(k);
-      if (!v) continue;
-      const n = parseInt(v, 10);
-      if (!Number.isNaN(n) && n > 0) return n;
-    }
-    return 0;
-  };
-
-  const w = pickInt(['width', 'w', 'maxwidth', 'mw']);
-  const h = pickInt(['height', 'h', 'maxheight', 'mh']);
-
-  if (w && h) return w * h;
-  if (w) return w; // still useful
-  if (h) return h;
-
-  return 0;
-}
-
-/**
- * Choose best full-res variant:
- * 1) NOT strong-thumb
- * 2) biggest sizeHint (w/h)
- * 3) hasHiHint
- * 4) longer URL (last tie-breaker)
- */
-function pickBestFull(variants: string[]) {
-  const uniq = Array.from(new Set(variants));
-  uniq.sort((a, b) => {
-    const aThumb = isThumbStrong(a) ? 1 : 0;
-    const bThumb = isThumbStrong(b) ? 1 : 0;
-    if (aThumb !== bThumb) return aThumb - bThumb; // prefer non-thumb (0)
-
-    const aSize = sizeHint(a);
-    const bSize = sizeHint(b);
-    if (aSize !== bSize) return bSize - aSize; // prefer bigger
-
-    const aHi = hasHiHint(a) ? 1 : 0;
-    const bHi = hasHiHint(b) ? 1 : 0;
-    if (aHi !== bHi) return bHi - aHi; // prefer hi-hint
-
-    return (b.length ?? 0) - (a.length ?? 0); // prefer longer
-  });
-  return uniq[0];
-}
-
-/**
- * Choose best thumb variant:
- * 1) strong-thumb
- * 2) smallest sizeHint (w/h) (prefer smaller for strip)
- * 3) shorter URL
- */
-function pickBestThumb(variants: string[], fallbackFull: string) {
-  const uniq = Array.from(new Set(variants));
-  uniq.sort((a, b) => {
-    const aThumb = isThumbStrong(a) ? 1 : 0;
-    const bThumb = isThumbStrong(b) ? 1 : 0;
-    if (aThumb !== bThumb) return bThumb - aThumb; // prefer thumb (1)
-
-    const aSize = sizeHint(a);
-    const bSize = sizeHint(b);
-    if (aSize !== bSize) return aSize - bSize; // prefer smaller
-
-    return (a.length ?? 0) - (b.length ?? 0); // prefer shorter
-  });
-
-  return uniq[0] ?? fallbackFull;
-}
-
-function extractPhotoUrlsFromRawPayload(raw: any): string[] {
+function extractPhotoUrlsFromRawPayload(raw: any) {
   const rp = raw ?? {};
-
   const buckets: any[] = [];
 
   if (Array.isArray(rp.PhotoUrls)) buckets.push(rp.PhotoUrls);
@@ -141,10 +45,7 @@ function extractPhotoUrlsFromRawPayload(raw: any): string[] {
     for (const item of b) {
       if (typeof item === 'string') {
         urls.push(item);
-        continue;
-      }
-      if (item && typeof item === 'object') {
-        // Put Large/full BEFORE generic Url so ties prefer large.
+      } else if (item && typeof item === 'object') {
         urls.push(
           item.LargeUrl,
           item.largeUrl,
@@ -155,51 +56,15 @@ function extractPhotoUrlsFromRawPayload(raw: any): string[] {
           item.mediaUrl,
           item.mediaURL,
           item.Uri,
-          item.uri,
-          item.ThumbnailUrl,
-          item.thumbnailUrl
+          item.uri
         );
       }
     }
   }
 
-  // Keep these (selection logic will pick correct variant)
-  urls.push(rp.PrimaryPhotoUrl, rp.primaryPhotoUrl, rp.ThumbnailUrl, rp.thumbnailUrl);
+  urls.push(rp.PrimaryPhotoUrl, rp.primaryPhotoUrl);
 
   return urls.map(safeStr).filter(Boolean) as string[];
-}
-
-function buildPhotoSlots(urls: string[]) {
-  const cleaned = (urls ?? []).map((u) => safeStr(u)).filter(Boolean) as string[];
-
-  const byKey = new Map<string, string[]>();
-  for (const u of cleaned) {
-    const key = canonicalPhotoKey(u);
-    if (!key) continue;
-    const arr = byKey.get(key) ?? [];
-    arr.push(u);
-    byKey.set(key, arr);
-  }
-
-  const slots: { key: string; bestFull: string; bestThumb: string }[] = [];
-
-  for (const [key, variants] of byKey.entries()) {
-    const bestFull = pickBestFull(variants);
-    const bestThumb = pickBestThumb(variants, bestFull);
-
-    if (bestFull) {
-      slots.push({
-        key,
-        bestFull,
-        bestThumb,
-      });
-    }
-  }
-
-  // Stable ordering
-  slots.sort((a, b) => a.key.localeCompare(b.key));
-
-  return slots;
 }
 
 export type ListingPhotoRowLike = { url: string | null | undefined };
@@ -221,40 +86,38 @@ export function ListingPhotoCarousel({
 }) {
   const [activeIdx, setActiveIdx] = useState(0);
 
-  const rawFromPayload = useMemo(() => extractPhotoUrlsFromRawPayload(rawPayload), [rawPayload]);
-
-  const allCandidateUrls = useMemo(() => {
+  const allUrls = useMemo(() => {
     const fromTable = (photoRows ?? []).map((p) => safeStr(p.url)).filter(Boolean) as string[];
-    if (fromTable.length > 0) return fromTable;
+    if (fromTable.length) return fromTable;
 
-    if (rawFromPayload.length > 0) return rawFromPayload;
+    const fromPayload = extractPhotoUrlsFromRawPayload(rawPayload);
+    if (fromPayload.length) return fromPayload;
 
-    const fb = (fallbackUrls ?? []).map((u) => safeStr(u)).filter(Boolean) as string[];
-    return fb;
-  }, [photoRows, rawFromPayload, fallbackUrls]);
+    return (fallbackUrls ?? []).map(safeStr).filter(Boolean) as string[];
+  }, [photoRows, rawPayload, fallbackUrls]);
 
-  const slots = useMemo(() => buildPhotoSlots(allCandidateUrls), [allCandidateUrls]);
+  // 🔒 HARD SPLIT
+  const fullResPhotos = useMemo(
+    () => allUrls.filter((u) => !isThumbnail(u)),
+    [allUrls]
+  );
 
-  const mainPhotos = useMemo(() => slots.map((s) => s.bestFull), [slots]);
-  const thumbPhotos = useMemo(() => slots.map((s) => s.bestThumb), [slots]);
+  const thumbPhotos = useMemo(
+    () => allUrls.filter((u) => isThumbnail(u)),
+    [allUrls]
+  );
+
+  const photos = fullResPhotos.length ? fullResPhotos : allUrls;
 
   useEffect(() => {
     setActiveIdx(0);
-  }, [slots.length]);
+  }, [photos.length]);
 
-  const hasPhotos = mainPhotos.length > 0;
-  const canPrev = hasPhotos && activeIdx > 0;
-  const canNext = hasPhotos && activeIdx < mainPhotos.length - 1;
+  const canPrev = activeIdx > 0;
+  const canNext = activeIdx < photos.length - 1;
 
-  const goPrev = () => {
-    if (!canPrev) return;
-    setActiveIdx((i) => Math.max(0, i - 1));
-  };
-
-  const goNext = () => {
-    if (!canNext) return;
-    setActiveIdx((i) => Math.min(mainPhotos.length - 1, i + 1));
-  };
+  const goPrev = () => canPrev && setActiveIdx((i) => i - 1);
+  const goNext = () => canNext && setActiveIdx((i) => i + 1);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -263,8 +126,7 @@ export function ListingPhotoCarousel({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canPrev, canNext, mainPhotos.length]);
+  }, [canPrev, canNext]);
 
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
@@ -277,27 +139,23 @@ export function ListingPhotoCarousel({
   };
 
   const onTouchEnd = (e: React.TouchEvent) => {
-    const startX = touchStartX.current;
-    const startY = touchStartY.current;
-    touchStartX.current = null;
-    touchStartY.current = null;
-
-    if (startX == null || startY == null) return;
-
+    if (touchStartX.current == null || touchStartY.current == null) return;
     const t = e.changedTouches[0];
     if (!t) return;
 
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
+    const dx = t.clientX - touchStartX.current;
+    const dy = t.clientY - touchStartY.current;
+
+    touchStartX.current = null;
+    touchStartY.current = null;
 
     if (Math.abs(dx) < 40) return;
     if (Math.abs(dy) > Math.abs(dx) * 0.75) return;
 
-    if (dx > 0) goPrev();
-    else goNext();
+    dx > 0 ? goPrev() : goNext();
   };
 
-  const primaryUrl = hasPhotos ? mainPhotos[activeIdx] ?? null : null;
+  const primaryUrl = photos[activeIdx] ?? null;
 
   return (
     <div className="space-y-2">
@@ -307,9 +165,8 @@ export function ListingPhotoCarousel({
         onTouchEnd={onTouchEnd}
       >
         {primaryUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
           <img
-            key={primaryUrl}
+            key={primaryUrl} // ✅ forces clean swap
             src={primaryUrl}
             alt="Property photo"
             className={`w-full ${heightClass} object-cover select-none`}
@@ -321,46 +178,21 @@ export function ListingPhotoCarousel({
           </div>
         )}
 
-        {mainPhotos.length > 1 && (
+        {photos.length > 1 && (
           <>
             <button
               type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                goPrev();
-              }}
+              onClick={goPrev}
               disabled={!canPrev}
-              className={[
-                'absolute left-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs',
-                'backdrop-blur bg-black/40',
-                canPrev
-                  ? 'border-white/20 text-slate-100 hover:bg-black/55'
-                  : 'border-white/10 text-slate-500 opacity-60 cursor-not-allowed',
-              ].join(' ')}
-              aria-label="Previous photo"
-              title="Previous (←)"
+              className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs backdrop-blur bg-black/40 border-white/20 text-slate-100 disabled:opacity-50"
             >
               ←
             </button>
-
             <button
               type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                goNext();
-              }}
+              onClick={goNext}
               disabled={!canNext}
-              className={[
-                'absolute right-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs',
-                'backdrop-blur bg-black/40',
-                canNext
-                  ? 'border-white/20 text-slate-100 hover:bg-black/55'
-                  : 'border-white/10 text-slate-500 opacity-60 cursor-not-allowed',
-              ].join(' ')}
-              aria-label="Next photo"
-              title="Next (→)"
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border px-3 py-2 text-xs backdrop-blur bg-black/40 border-white/20 text-slate-100 disabled:opacity-50"
             >
               →
             </button>
@@ -368,37 +200,29 @@ export function ListingPhotoCarousel({
         )}
       </div>
 
-      {showThumbs && thumbPhotos.length > 1 && (
+      {showThumbs && thumbPhotos.length > 0 && (
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {thumbPhotos.slice(0, maxThumbs).map((url, idx) => {
-            const active = idx === activeIdx;
-            return (
-              <button
-                key={`${url}-${idx}`}
-                type="button"
-                onClick={() => setActiveIdx(idx)}
-                className={[
-                  'shrink-0 rounded-xl overflow-hidden border transition',
-                  active ? 'border-[#EBD27A]/60 bg-[#EBD27A]/10' : 'border-white/10 bg-black/40 hover:border-white/25',
-                ].join(' ')}
-                aria-label={`View photo ${idx + 1}`}
-                title={`Photo ${idx + 1}`}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt={`Photo ${idx + 1}`} className="h-16 w-24 object-cover" draggable={false} />
-              </button>
-            );
-          })}
+          {thumbPhotos.slice(0, maxThumbs).map((url, idx) => (
+            <button
+              key={`${url}-${idx}`}
+              type="button"
+              onClick={() => setActiveIdx(idx)}
+              className="shrink-0 rounded-xl overflow-hidden border border-white/10 bg-black/40 hover:border-white/25"
+            >
+              <img src={url} className="h-16 w-24 object-cover" draggable={false} />
+            </button>
+          ))}
         </div>
       )}
 
-      {mainPhotos.length > 1 ? (
+      {photos.length > 1 && (
         <div className="text-[11px] text-slate-500">
-          Tip: swipe or use ← → keys • {activeIdx + 1}/{mainPhotos.length}
+          Tip: swipe or use ← → keys • {activeIdx + 1}/{photos.length}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
+
 
 
